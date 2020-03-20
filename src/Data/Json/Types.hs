@@ -108,7 +108,7 @@ jsonObjectField fields = do
   char ':'
 
   let go :: JsonObject fields -> Parser (JsonObject fields)
-      go JsonObjectIgnoreField = pure JsonObjectIgnoreField
+      go JsonObjectIgnoreField = JsonObjectIgnoreField <$ fail "Ignoring is not implemented"
       go JsonObjectInvalidField = fail $ "Unexpected key " ++ show key
       go (JsonObjectCapture captured) = do
         !value <- jsonTypeParser
