@@ -97,7 +97,7 @@ data JsonObject fields where
   JsonObjectInvalidField :: JsonObject '[]
   JsonObjectCapture :: JsonType x => ![(BSL.ByteString, x)] -> JsonObject '[x]
   (:--:) :: JsonType x => !BSL.ByteString -> !(JsonObject xs) -> JsonObject (x ': xs)
-  (:++:) :: !x -> JsonObject xs -> JsonObject (x ': xs)
+  (:++:) :: !x -> !(JsonObject xs) -> JsonObject (x ': xs)
 
 infixr :++:
 infixr :--:
