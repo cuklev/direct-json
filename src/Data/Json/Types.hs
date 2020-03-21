@@ -85,8 +85,11 @@ instance JsonType Json where
 
 jsonInt :: Parser Int
 jsonInt = do
+  negative <- (True <$ char '-') <|> pure False
   !digits <- takeWhileC1 isDigit
-  pure $ foldl' (\x d -> x*10 + ord d - ord '0') 0 $ BSL.unpack digits
+  let num = foldl' (\x d -> x*10 + ord d - ord '0') 0 $ BSL.unpack digits
+  pure $ if negative then -num
+                     else num
 
 jsonString, jsonString' :: Parser BSL.ByteString
 jsonString  = char '"' *> jsonString'

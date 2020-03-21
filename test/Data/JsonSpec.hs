@@ -16,7 +16,7 @@ spec :: Spec
 spec = describe "Parsing" $ do
   describe "parsing positive integers" $
     let test n = it (show n) $ parseJson (BSL.pack $ show n) `shouldBe` Right n
-    in traverse_ test [1, 5, 42, 123439 :: Int]
+    in traverse_ test [1, 5, 42, -17, 123439 :: Int]
 
   describe "parsing simple strings" $
     let test s = it (show s) $ parseJson ("\"" <> s <> "\"") `shouldBe` Right s
