@@ -37,35 +37,29 @@ spec = do
 
   describe "parsing objects" $ do
     it "empty" $ do
-      let res = runParser (jsonObject jsonFieldInvalidUnknown) "{}"
-      case res of
-        Right _  -> pure () :: IO ()
-        Left err -> fail err
+      let parser = () <$ jsonObject jsonFieldInvalidUnknown
+      runParser parser "{}" `shouldBe` Right ()
 
     it "object with a field" $ do
-      let res = runParser (jsonObject $ "id" -: jsonFieldInvalidUnknown) "{\"id\":4}"
-      case res of
-        Right (x :+ _)
-                 -> x `shouldBe` (4 :: Int)
-        Left err -> fail err
+      let parser = do
+            x :+ _ <- jsonObject $ "id" -: jsonFieldInvalidUnknown
+            pure x
+      runParser parser "{\"id\":4}" `shouldBe` Right (4 :: Int)
 
     it "object with two fields" $ do
-      let res = runParser (jsonObject $ "age" -: "name" -: jsonFieldInvalidUnknown) "{\"age\":4,\"name\":\"John\"}"
-      case res of
-        Right (age :+ name :+ _)
-                 -> (age, name) `shouldBe` (4 :: Int, "John" :: BSL.ByteString)
-        Left err -> fail err
+      let parser = do
+            age :+ name :+ _ <- jsonObject $ "age" -: "name" -: jsonFieldInvalidUnknown
+            pure (age, name)
+      runParser parser "{\"age\":4,\"name\":\"John\"}" `shouldBe` Right (4 :: Int, "John" :: BSL.ByteString)
 
-    it "object with two fields" $ do
-      let res = runParser (jsonObject $ "name" -: "age" -: jsonFieldInvalidUnknown) "{\"age\":4,\"name\":\"John\"}"
-      case res of
-        Right (name :+ age :+ _)
-                 -> (age, name) `shouldBe` ((4, "John") :: (Int, BSL.ByteString))
-        Left err -> fail err
+    it "object with two fields (different order)" $ do
+      let parser = do
+            age :+ name :+ _ <- jsonObject $ "age" -: "name" -: jsonFieldInvalidUnknown
+            pure (age, name)
+      runParser parser "{\"name\":\"John\",\"age\":4}" `shouldBe` Right (4 :: Int, "John" :: BSL.ByteString)
 
     it "homegenous object" $ do
-      let res = runParser (jsonObject jsonFieldCaptureUnknown) "{\"age\":4,\"id\":42,\"count\":5}"
-      case res of
-        Right (m :+ _)
-                 -> sort m `shouldBe` sort [("age", 4), ("id", 42), ("count", 5 :: Int)]
-        Left err -> fail err
+      let parser = do
+            m :+ _ <- jsonObject jsonFieldCaptureUnknown
+            pure $ sort m
+      runParser parser "{\"age\":4,\"id\":42,\"count\":5}" `shouldBe` Right (sort [("age", 4), ("id", 42), ("count", 5 :: Int)])
