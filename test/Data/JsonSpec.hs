@@ -37,41 +37,35 @@ spec = do
 
   describe "parsing objects" $ do
     it "empty" $ do
-      let res = runParser (jsonObject JsonObjectInvalidField) "{}"
+      let res = runParser (jsonObject JsonFieldInvalidUnknown) "{}"
       case res of
-        Right JsonObjectInvalidField
-                 -> pure () :: IO ()
-        Right _  -> fail "Not an empty object"
+        Right _  -> pure () :: IO ()
         Left err -> fail err
 
     it "object with a field" $ do
-      let res = runParser (jsonObject $ "id" :--: JsonObjectInvalidField) "{\"id\":4}"
+      let res = runParser (jsonObject $ "id" :-: JsonFieldInvalidUnknown) "{\"id\":4}"
       case res of
-        Right (x :++: JsonObjectInvalidField)
+        Right (x :+ _)
                  -> x `shouldBe` (4 :: Int)
-        Right _  -> fail "Unexpected object"
         Left err -> fail err
 
     it "object with two fields" $ do
-      let res = runParser (jsonObject $ "age" :--: "name" :--: JsonObjectInvalidField) "{\"age\":4,\"name\":\"John\"}"
+      let res = runParser (jsonObject $ "age" :-: "name" :-: JsonFieldInvalidUnknown) "{\"age\":4,\"name\":\"John\"}"
       case res of
-        Right (age :++: name :++: JsonObjectInvalidField)
-                 -> (age, name) `shouldBe` ((4, "John") :: (Int, BSL.ByteString))
-        Right _  -> fail "Unexpected object"
+        Right (age :+ name :+ _)
+                 -> (age, name) `shouldBe` (4 :: Int, "John" :: BSL.ByteString)
         Left err -> fail err
 
     it "object with two fields" $ do
-      let res = runParser (jsonObject $ "name" :--: "age" :--: JsonObjectInvalidField) "{\"age\":4,\"name\":\"John\"}"
+      let res = runParser (jsonObject $ "name" :-: "age" :-: JsonFieldInvalidUnknown) "{\"age\":4,\"name\":\"John\"}"
       case res of
-        Right (name :++: age :++: JsonObjectInvalidField)
+        Right (name :+ age :+ _)
                  -> (age, name) `shouldBe` ((4, "John") :: (Int, BSL.ByteString))
-        Right _  -> fail "Unexpected object"
         Left err -> fail err
 
     it "homegenous object" $ do
-      let res = runParser (jsonObject $ JsonObjectCapture []) "{\"age\":4,\"id\":42,\"count\":5}"
+      let res = runParser (jsonObject $ JsonFieldCaptureUnknown []) "{\"age\":4,\"id\":42,\"count\":5}"
       case res of
-        Right (JsonObjectCapture m)
-                 -> sort m `shouldBe` sort [("age", 4), ("id", 42), ("count", 5) :: (BSL.ByteString, Int)]
-        Right _  -> fail "Unexpected object"
+        Right (m :+ _)
+                 -> sort m `shouldBe` sort [("age", 4), ("id", 42), ("count", 5 :: Int)]
         Left err -> fail err

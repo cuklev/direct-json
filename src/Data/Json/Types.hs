@@ -4,10 +4,14 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Data.Json.Types
   ( JsonType (..)
-  , JsonObject (..)
   , jsonObject
+  , JsonObject (JsonFieldIgnoreUnknown, JsonFieldInvalidUnknown, JsonFieldCaptureUnknown, (:-:))
+  , JsonObjectValues ((:+))
   ) where
 
 import Control.Applicative ((<|>))
@@ -92,40 +96,65 @@ jsonListOf' p = do
         ',' -> loop (n+1) (x:acc)
         _   -> fail "Expected ',' or ']'"
 
-data JsonObject fields where
-  JsonObjectIgnoreField :: JsonObject '[]
-  JsonObjectInvalidField :: JsonObject '[]
-  JsonObjectCapture :: JsonType x => ![(BSL.ByteString, x)] -> JsonObject '[x]
-  (:--:) :: JsonType x => !BSL.ByteString -> !(JsonObject xs) -> JsonObject (x ': xs)
-  (:++:) :: !x -> !(JsonObject xs) -> JsonObject (x ': xs)
+data JsonFieldUnknown
+  = JsonFieldIgnoreUnknown'
+  | JsonFieldInvalidUnknown'
+  | JsonFieldCaptureUnknown'
 
-infixr :++:
-infixr :--:
+type CapturedFields x = [(BSL.ByteString, x)]
 
-jsonObjectField :: JsonObject fields -> Parser (JsonObject fields)
+data JsonObject (unknown :: JsonFieldUnknown) (fields :: [*]) where
+  JsonFieldIgnoreUnknown  :: JsonObject 'JsonFieldIgnoreUnknown' '[]
+  JsonFieldInvalidUnknown :: JsonObject 'JsonFieldInvalidUnknown' '[]
+  JsonFieldCaptureUnknown :: JsonType x => !(CapturedFields x) -> JsonObject 'JsonFieldCaptureUnknown' '[CapturedFields x]
+
+  (:-:) :: JsonType x => !BSL.ByteString -> !(JsonObject unknown xs) -> JsonObject unknown (x ': xs)
+  (:+:) :: !x -> !(JsonObject unknown xs) -> JsonObject unknown (x ': xs)
+
+infixr :-:
+infixr :+:
+
+data JsonObjectValues fields where
+  JsonObjectNoValues :: JsonObjectValues '[]
+  (:+) :: !x -> !(JsonObjectValues xs) -> JsonObjectValues (x ': xs)
+
+infixr :+
+
+class ExtractJsonFields unknown fields where
+  extractFieldValues :: JsonObject unknown fields -> Parser (JsonObjectValues fields)
+
+instance ExtractJsonFields unknown '[] where
+  extractFieldValues _ = pure JsonObjectNoValues
+
+instance ExtractJsonFields unknown xs => ExtractJsonFields unknown (x ': xs) where
+  extractFieldValues (k :-: _)  = fail $ "Missing key " ++ show k
+  extractFieldValues (x :+: xs) = (x :+) <$> extractFieldValues xs
+  extractFieldValues (JsonFieldCaptureUnknown xs) = pure $ xs :+ JsonObjectNoValues
+
+jsonObjectField :: JsonObject unknown fields -> Parser (JsonObject unknown fields)
 jsonObjectField fields = do
   !key <- jsonString
   char ':'
 
-  let go :: JsonObject fields -> Parser (JsonObject fields)
-      go JsonObjectIgnoreField = JsonObjectIgnoreField <$ fail "Ignoring is not implemented"
-      go JsonObjectInvalidField = fail $ "Unexpected key " ++ show key
-      go (JsonObjectCapture captured) = do
+  let go :: JsonObject unknown fields -> Parser (JsonObject unknown fields)
+      go JsonFieldIgnoreUnknown = JsonFieldIgnoreUnknown <$ fail "Ignoring is not implemented"
+      go JsonFieldInvalidUnknown = fail $ "Unexpected key " ++ show key
+      go (JsonFieldCaptureUnknown captured) = do
         !value <- jsonTypeParser
-        pure $ JsonObjectCapture ((key, value) : captured)
-      go (x :--: xs)
-        | key == x   = (:++: xs) <$> jsonTypeParser
-        | otherwise  = (x :--:)  <$> go xs
-      go (x :++: xs) = (x :++:)  <$> go xs
+        pure $ JsonFieldCaptureUnknown ((key, value) : captured)
+      go (x :-: xs)
+        | key == x   = (:+: xs) <$> jsonTypeParser
+        | otherwise  = (x :-:)  <$> go xs
+      go (x :+: xs) = (x :+:)  <$> go xs
 
   go fields
 
-jsonObject :: JsonObject fields -> Parser (JsonObject fields)
+jsonObject :: ExtractJsonFields unknown fields => JsonObject unknown fields -> Parser (JsonObjectValues fields)
 jsonObject = objFirst
   where
     objFirst fields = do
       char '{'
-      (fields <$ char '}') <|> loop fields
+      extractFieldValues =<< (fields <$ char '}') <|> loop fields
 
     loop fields = do
       !fields' <- jsonObjectField fields
