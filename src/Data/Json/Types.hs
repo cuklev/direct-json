@@ -7,8 +7,10 @@
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UnboxedSums #-}
 module Data.Json.Types
-  ( JsonType (..)
+  ( Json (..)
+  , JsonType (..)
   , jsonObject
   , jsonFieldIgnoreUnknown
   , jsonFieldInvalidUnknown
@@ -55,31 +57,55 @@ instance JsonType a => JsonType (V.Vector a) where
   jsonTypeParser = V.reverse . uncurry V.fromListN <$> jsonAccumList fold (0, [])
     where fold !x (!n, !xs) = (n+1, x:xs)
 
+data Json
+  = JsonNull
+  | JsonFalse
+  | JsonTrue
+  | JsonNumber {-# UNPACK #-} !Int -- choose a more suitable type
+  | JsonString                !BSL.ByteString
+  | JsonList   {-# UNPACK #-} !(V.Vector Json)
+  | JsonObject {-# UNPACK #-} !(V.Vector (BSL.ByteString, Json))
+  deriving (Eq, Show)
+
+instance JsonType Json where
+  jsonTypeParser = selectOnFirstChar (fmap JsonNumber jsonInt)
+    [ ('n', JsonNull   <$  string "ull")
+    , ('f', JsonFalse  <$  string "alse")
+    , ('t', JsonTrue   <$  string "rue")
+    , ('"', JsonString <$> jsonString')
+    , ('[', list)
+    , ('{', object)
+    ]
+    where
+      fold !x (!n, !xs) = (n+1, x:xs)
+      list = JsonList . V.reverse . uncurry V.fromListN <$> jsonAccumList' fold (0, [])
+      object = do
+        x :+ _ <- jsonObject' jsonFieldCaptureUnknown
+        pure $ JsonObject $ V.fromList x
+
 jsonInt :: Parser Int
 jsonInt = do
   !digits <- takeWhileC1 isDigit
   pure $ foldl' (\x d -> x*10 + ord d - ord '0') 0 $ BSL.unpack digits
 
-jsonString :: Parser BSL.ByteString
-jsonString = char '"' *> takeWhileC (/= '"') <* anyChar
+jsonString, jsonString' :: Parser BSL.ByteString
+jsonString  = char '"' *> jsonString'
+jsonString' = takeWhileC (/= '"') <* anyChar
 
 jsonNull :: Parser ()
 jsonNull = string "null"
 
 jsonBool :: Parser Bool
-jsonBool = do
-  c <- anyChar
-  case c of
-    't' -> True  <$ string "rue"
-    'f' -> False <$ string "alse"
-    _   -> fail "Expected a boolean"
+jsonBool = selectOnFirstChar (fail "Expected a boolean")
+  [ ('f', False <$ string "alse")
+  , ('t', True  <$ string "rue")
+  ]
 
-jsonAccumList :: JsonType a => (a -> b -> b) -> b -> Parser b
-jsonAccumList fold initial = listFirst
+jsonAccumList, jsonAccumList' :: JsonType a => (a -> b -> b) -> b -> Parser b
+jsonAccumList  fold initial = char '[' *> jsonAccumList' fold initial
+jsonAccumList' fold initial = listFirst
   where
-    listFirst = do
-      char '['
-      (initial <$ char ']') <|> loop initial
+    listFirst = (initial <$ char ']') <|> loop initial
 
     loop !acc = do
       !x <- jsonTypeParser
@@ -153,11 +179,11 @@ jsonObjectField fields = do
 
   go fields
 
-jsonObject :: ExtractJsonFields unknown fields => JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
-jsonObject = objFirst
+jsonObject, jsonObject' :: ExtractJsonFields unknown fields => JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
+jsonObject fields = char '{' *> jsonObject' fields
+jsonObject' = objFirst
   where
-    objFirst fields = do
-      char '{'
+    objFirst fields =
       extractFieldValues =<< (fields <$ char '}') <|> loop fields
 
     loop fields = do

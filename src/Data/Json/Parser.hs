@@ -6,6 +6,7 @@ module Data.Json.Parser
   , anyChar
   , char
   , string
+  , selectOnFirstChar
   , runParser
   ) where
 
@@ -66,6 +67,15 @@ string prefix = Parser $ \input ->
   case BSL.stripPrefix prefix input of
     Nothing   -> Left $ "Expected " ++ show prefix
     Just next -> Right ((), next)
+
+selectOnFirstChar :: Parser a -> [(Char, Parser a)] -> Parser a
+selectOnFirstChar (Parser fallback) parsers =
+  Parser $ \input -> do
+    let Parser get = anyChar
+    (c, next) <- get input
+    case lookup c parsers of
+      Nothing -> fallback input
+      Just (Parser p) -> p next
 
 runParser :: Parser a -> BSL.ByteString -> Either String a
 runParser (Parser p) = fmap fst . p

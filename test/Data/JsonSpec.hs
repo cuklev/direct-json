@@ -13,7 +13,7 @@ import Data.List (sort)
 import Test.Hspec
 
 spec :: Spec
-spec = do
+spec = describe "Parsing" $ do
   describe "parsing positive integers" $
     let test n = it (show n) $ parseJson (BSL.pack $ show n) `shouldBe` Right n
     in traverse_ test [1, 5, 42, 123439 :: Int]
@@ -63,3 +63,19 @@ spec = do
             m :+ _ <- jsonObject jsonFieldCaptureUnknown
             pure $ sort m
       runParser parser "{\"age\":4,\"id\":42,\"count\":5}" `shouldBe` Right (sort [("age", 4), ("id", 42), ("count", 5 :: Int)])
+
+  describe "Json type" $
+    it "Json type" $ do
+      parseJson "{\"empty object\":{},\"empty list\":[],\"values\":[42,false,true,null,\"somevalue\"]}" `shouldBe`
+        Right
+          (JsonObject $ V.fromList
+            [ ("values", JsonList $ V.fromList
+                [ JsonNumber 42
+                , JsonFalse
+                , JsonTrue
+                , JsonNull
+                , JsonString "somevalue"
+                ])
+            , ("empty list", JsonList V.empty)
+            , ("empty object", JsonObject V.empty)
+            ])
