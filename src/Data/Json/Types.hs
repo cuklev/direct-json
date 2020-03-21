@@ -49,10 +49,11 @@ instance JsonType T.Text where
   jsonTypeParser = fmap T.decodeUtf8 jsonTypeParser
 
 instance JsonType a => JsonType [a] where
-  jsonTypeParser = jsonListOf jsonTypeParser
+  jsonTypeParser = reverse <$> jsonAccumList (:) []
 
 instance JsonType a => JsonType (V.Vector a) where
-  jsonTypeParser = jsonListOf' jsonTypeParser
+  jsonTypeParser = V.reverse . uncurry V.fromListN <$> jsonAccumList fold (0, [])
+    where fold !x (!n, !xs) = (n+1, x:xs)
 
 jsonInt :: Parser Int
 jsonInt = do
@@ -73,30 +74,19 @@ jsonBool = do
     'f' -> False <$ string "alse"
     _   -> fail "Expected a boolean"
 
-jsonListOf :: Parser a -> Parser [a]
-jsonListOf p = do
-  char '['
-  ([] <$ char ']') <|> ((:) <$> p <*> loop)
-
+jsonAccumList :: JsonType a => (a -> b -> b) -> b -> Parser b
+jsonAccumList fold initial = listFirst
   where
-    loop = anyChar >>= \case
-      ']' -> pure []
-      ',' -> do
-        !x <- p
-        (x:) <$> loop
-      _   -> fail "Expected ',' or ']'"
+    listFirst = do
+      char '['
+      (initial <$ char ']') <|> loop initial
 
-jsonListOf' :: Parser a -> Parser (V.Vector a)
-jsonListOf' p = do
-  char '['
-  (V.empty <$ char ']') <|> loop 0 []
-
-  where
-    loop !n !acc = do
-      !x <- p
+    loop !acc = do
+      !x <- jsonTypeParser
+      let !next = fold x acc
       anyChar >>= \case
-        ']' -> pure $ V.reverse $ V.fromListN (n+1) (x:acc)
-        ',' -> loop (n+1) (x:acc)
+        ']' -> pure next
+        ',' -> loop next
         _   -> fail "Expected ',' or ']'"
 
 data JsonFieldUnknown
