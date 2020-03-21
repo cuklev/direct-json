@@ -10,7 +10,10 @@
 module Data.Json.Types
   ( JsonType (..)
   , jsonObject
-  , JsonObject (JsonFieldIgnoreUnknown, JsonFieldInvalidUnknown, JsonFieldCaptureUnknown, (:-:))
+  , jsonFieldIgnoreUnknown
+  , jsonFieldInvalidUnknown
+  , jsonFieldCaptureUnknown
+  , (-:)
   , JsonObjectValues ((:+))
   ) where
 
@@ -111,8 +114,19 @@ data JsonObject (unknown :: JsonFieldUnknown) (fields :: [*]) where
   (:-:) :: JsonType x => !BSL.ByteString -> !(JsonObject unknown xs) -> JsonObject unknown (x ': xs)
   (:+:) :: !x -> !(JsonObject unknown xs) -> JsonObject unknown (x ': xs)
 
-infixr :-:
-infixr :+:
+jsonFieldIgnoreUnknown :: JsonObject 'JsonFieldIgnoreUnknown' '[]
+jsonFieldIgnoreUnknown = JsonFieldIgnoreUnknown
+
+jsonFieldInvalidUnknown :: JsonObject 'JsonFieldInvalidUnknown' '[]
+jsonFieldInvalidUnknown = JsonFieldInvalidUnknown
+
+jsonFieldCaptureUnknown :: JsonType x => JsonObject 'JsonFieldCaptureUnknown' '[CapturedFields x]
+jsonFieldCaptureUnknown = JsonFieldCaptureUnknown []
+
+(-:) :: JsonType x => BSL.ByteString -> JsonObject unknown xs -> JsonObject unknown (x ': xs)
+(-:) = (:-:)
+
+infixr -:
 
 data JsonObjectValues fields where
   JsonObjectNoValues :: JsonObjectValues '[]
