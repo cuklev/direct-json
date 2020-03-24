@@ -108,14 +108,14 @@ jsonAccumList, jsonAccumList' :: JsonType a => (a -> b -> b) -> b -> Parser b
 jsonAccumList  fold initial = char '[' *> jsonAccumList' fold initial
 jsonAccumList' fold initial = listFirst
   where
-    listFirst = (initial <$ char ']') <|> loop initial
+    listFirst = (initial <$ char ']') <|> loop 0 initial
 
-    loop !acc = do
-      !x <- jsonTypeParser
+    loop !n !acc = do
+      !x <- atIndex n jsonTypeParser
       let !next = fold x acc
       anyChar >>= \case
         ']' -> pure next
-        ',' -> loop next
+        ',' -> loop (n+1) next
         _   -> fail "Expected ',' or ']'"
 
 data JsonFieldUnknown
@@ -180,7 +180,7 @@ jsonObjectField fields = do
         | otherwise  = (x :-:)  <$> go xs
       go (x :+: xs) = (x :+:)  <$> go xs
 
-  go fields
+  atKey key $ go fields
 
 jsonObject, jsonObject' :: ExtractJsonFields unknown fields => JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
 jsonObject fields = char '{' *> jsonObject' fields
