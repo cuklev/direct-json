@@ -9,7 +9,7 @@ data Json
   = JsonNull
   | JsonFalse
   | JsonTrue
-  | JsonNumber {-# UNPACK #-} !Int -- choose a more suitable type
+  | JsonNumber {-# UNPACK #-} !Double -- choose a more suitable type
   | JsonString                !BSL.ByteString
   | JsonList   {-# UNPACK #-} !(V.Vector Json)
   | JsonObject {-# UNPACK #-} !(V.Vector (BSL.ByteString, Json))

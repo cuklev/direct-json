@@ -31,6 +31,7 @@ import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
 import Data.Json.Parser
 import Data.Json.Types
+import Text.Read (readEither)
 
 class JsonDecode a where
   jsonDecode :: Parser a
@@ -43,6 +44,9 @@ instance JsonDecode Bool where
 
 instance JsonDecode Int where
   jsonDecode = jsonInt
+
+instance JsonDecode Double where
+  jsonDecode = jsonDouble
 
 instance JsonDecode BSL.ByteString where
   jsonDecode = jsonString
@@ -60,7 +64,7 @@ instance JsonDecode a => JsonDecode (V.Vector a) where
   jsonDecode = V.reverse . uncurry V.fromListN <$> jsonAccumList (:) []
 
 instance JsonDecode Json where
-  jsonDecode = selectOnFirstChar (fmap JsonNumber jsonInt)
+  jsonDecode = selectOnFirstChar (fmap JsonNumber jsonDouble)
     [ ('n', JsonNull   <$  string "ull")
     , ('f', JsonFalse  <$  string "alse")
     , ('t', JsonTrue   <$  string "rue")
@@ -77,7 +81,7 @@ instance JsonDecode Json where
 data Ignore = Ignore
 
 instance JsonDecode Ignore where
-  jsonDecode = selectOnFirstChar (Ignore <$ jsonInt)
+  jsonDecode = selectOnFirstChar (Ignore <$ jsonDouble)
     [ ('n', Ignore <$ string "ull")
     , ('f', Ignore <$ string "alse")
     , ('t', Ignore <$ string "rue")
@@ -93,6 +97,11 @@ jsonInt = do
   let num = foldl' (\x d -> x*10 + ord d - ord '0') 0 $ BSL.unpack digits
   pure $ if negative then -num
                      else num
+
+jsonDouble :: Parser Double
+jsonDouble = do
+  !digits <- takeWhileC1 (\c -> isDigit c || c == '-' || c == '.')
+  either fail pure $ readEither $ BSL.unpack digits
 
 jsonString, jsonString' :: Parser BSL.ByteString
 jsonString  = char '"' *> jsonString'
