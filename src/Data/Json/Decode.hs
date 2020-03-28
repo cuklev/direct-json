@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE KindSignatures #-}
@@ -72,6 +73,18 @@ instance JsonDecode Json where
       object = do
         x :+ _ <- jsonObject' jsonFieldCaptureUnknown
         pure $ JsonObject $ V.fromList x
+
+data Ignore = Ignore
+
+instance JsonDecode Ignore where
+  jsonDecode = selectOnFirstChar (Ignore <$ jsonInt)
+    [ ('n', Ignore <$ string "ull")
+    , ('f', Ignore <$ string "alse")
+    , ('t', Ignore <$ string "rue")
+    , ('"', Ignore <$ jsonString')
+    , ('[', Ignore <$ jsonAccumList' const Ignore)
+    , ('{', Ignore <$ jsonObject' jsonFieldIgnoreUnknown)
+    ]
 
 jsonInt :: Parser Int
 jsonInt = do
@@ -160,7 +173,7 @@ jsonObjectField fields = do
   char ':'
 
   let go :: JsonFieldParse unknown fields -> Parser (JsonFieldParse unknown fields)
-      go JsonFieldIgnoreUnknown = JsonFieldIgnoreUnknown <$ fail "Ignoring is not implemented"
+      go JsonFieldIgnoreUnknown  = JsonFieldIgnoreUnknown <$ jsonDecode @Ignore
       go JsonFieldInvalidUnknown = fail $ "Unexpected key " ++ show key
       go (JsonFieldCaptureUnknown captured) = do
         !value <- jsonDecode
@@ -168,7 +181,7 @@ jsonObjectField fields = do
       go (x :-: xs)
         | key == x   = (:+: xs) <$> jsonDecode
         | otherwise  = (x :-:)  <$> go xs
-      go (x :+: xs) = (x :+:)  <$> go xs
+      go (x :+: xs)  = (x :+:)  <$> go xs
 
   atKey key $ go fields
 
