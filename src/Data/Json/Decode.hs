@@ -53,11 +53,10 @@ instance JsonDecode T.Text where
   jsonDecode = fmap T.decodeUtf8 jsonDecode
 
 instance JsonDecode a => JsonDecode [a] where
-  jsonDecode = reverse <$> jsonAccumList (:) []
+  jsonDecode = reverse . snd <$> jsonAccumList (:) []
 
 instance JsonDecode a => JsonDecode (V.Vector a) where
-  jsonDecode = V.reverse . uncurry V.fromListN <$> jsonAccumList fold (0, [])
-    where fold !x (!n, !xs) = (n+1, x:xs)
+  jsonDecode = V.reverse . uncurry V.fromListN <$> jsonAccumList (:) []
 
 instance JsonDecode Json where
   jsonDecode = selectOnFirstChar (fmap JsonNumber jsonInt)
@@ -69,8 +68,7 @@ instance JsonDecode Json where
     , ('{', object)
     ]
     where
-      fold !x (!n, !xs) = (n+1, x:xs)
-      list = JsonList . V.reverse . uncurry V.fromListN <$> jsonAccumList' fold (0, [])
+      list = JsonList . V.reverse . uncurry V.fromListN <$> jsonAccumList' (:) []
       object = do
         x :+ _ <- jsonObject' jsonFieldCaptureUnknown
         pure $ JsonObject $ V.fromList x
@@ -96,17 +94,17 @@ jsonBool = selectOnFirstChar (fail "Expected a boolean")
   , ('t', True  <$ string "rue")
   ]
 
-jsonAccumList, jsonAccumList' :: JsonDecode a => (a -> b -> b) -> b -> Parser b
+jsonAccumList, jsonAccumList' :: JsonDecode a => (a -> b -> b) -> b -> Parser (Int, b)
 jsonAccumList  fold initial = char '[' *> jsonAccumList' fold initial
 jsonAccumList' fold initial = listFirst
   where
-    listFirst = (initial <$ char ']') <|> loop 0 initial
+    listFirst = ((0, initial) <$ char ']') <|> loop 0 initial
 
     loop !n !acc = do
       !x <- atIndex n jsonDecode
       let !next = fold x acc
       anyChar >>= \case
-        ']' -> pure next
+        ']' -> pure (n+1, next)
         ',' -> loop (n+1) next
         _   -> fail "Expected ',' or ']'"
 
