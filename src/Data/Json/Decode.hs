@@ -29,6 +29,8 @@ import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector.Storable as VS
 import Data.Json.Parser
 import Data.Json.Types
 import Text.Read (readEither)
@@ -62,6 +64,12 @@ instance JsonDecode a => JsonDecode [a] where
 
 instance JsonDecode a => JsonDecode (V.Vector a) where
   jsonDecode = V.reverse . uncurry V.fromListN <$> jsonAccumList (:) []
+
+instance (JsonDecode a, VU.Unbox a) => JsonDecode (VU.Vector a) where
+  jsonDecode = VU.reverse . uncurry VU.fromListN <$> jsonAccumList (:) []
+
+instance (JsonDecode a, VS.Storable a) => JsonDecode (VS.Vector a) where
+  jsonDecode = VS.reverse . uncurry VS.fromListN <$> jsonAccumList (:) []
 
 instance JsonDecode Json where
   jsonDecode = selectOnFirstChar (fmap JsonNumber jsonDouble)
