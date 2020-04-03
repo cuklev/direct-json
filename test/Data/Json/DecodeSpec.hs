@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE GADTs #-}
-module Data.JsonSpec
+module Data.Json.DecodeSpec
   ( spec
   ) where
 
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.Vector as V
 import Data.Foldable (traverse_)
-import Data.Json
+import Data.Json.Decode
 import Data.Json.Parser
 import Data.List (sort)
 import Test.Hspec
@@ -15,24 +15,24 @@ import Test.Hspec
 spec :: Spec
 spec = describe "Parsing" $ do
   describe "parsing positive integers" $
-    let test n = it (show n) $ parseJson (BSL.pack $ show n) `shouldBe` Right n
+    let test n = it (show n) $ decode (BSL.pack $ show n) `shouldBe` Right n
     in traverse_ test [1, 5, 42, -17, 123439 :: Int]
 
   describe "parsing simple strings" $
-    let test s = it (show s) $ parseJson ("\"" <> s <> "\"") `shouldBe` Right s
+    let test s = it (show s) $ decode ("\"" <> s <> "\"") `shouldBe` Right s
     in traverse_ test ["", "hello", "x", "ti80"]
 
   describe "parsing null" $
-    it "null" $ parseJson "null" `shouldBe` Right ()
+    it "null" $ decode "null" `shouldBe` Right ()
 
   describe "parsing bools" $ do
-    it "false" $ parseJson "false" `shouldBe` Right False
-    it "true"  $ parseJson "true"  `shouldBe` Right True
+    it "false" $ decode "false" `shouldBe` Right False
+    it "true"  $ decode "true"  `shouldBe` Right True
 
   describe "parsing lists" $
     let test s = do
-          it ("list " ++ show s) $ parseJson (BSL.pack $ show s) `shouldBe` Right s
-          it ("vector " ++ show s) $ parseJson (BSL.pack $ show s) `shouldBe` Right (V.fromList s)
+          it ("list " ++ show s) $ decode (BSL.pack $ show s) `shouldBe` Right s
+          it ("vector " ++ show s) $ decode (BSL.pack $ show s) `shouldBe` Right (V.fromList s)
     in traverse_ test [[], [5], [1, 2], [1, 2, 3 :: Int]]
 
   describe "parsing objects" $ do
@@ -66,7 +66,7 @@ spec = describe "Parsing" $ do
 
   describe "Json type" $
     it "Json type" $ do
-      parseJson "{\"empty object\":{},\"empty list\":[],\"values\":[42,false,true,null,\"somevalue\"]}" `shouldBe`
+      decode "{\"empty object\":{},\"empty list\":[],\"values\":[42,false,true,null,\"somevalue\"]}" `shouldBe`
         Right
           (JsonObject $ V.fromList
             [ ("values", JsonList $ V.fromList
