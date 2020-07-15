@@ -173,16 +173,12 @@ data JsonFieldValues fields where
 
 infixr :+
 
-class ExtractJsonFields unknown fields where
-  extractFieldValues :: JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
-
-instance ExtractJsonFields unknown '[] where
-  extractFieldValues _ = pure JsonFieldsEmpty
-
-instance ExtractJsonFields unknown xs => ExtractJsonFields unknown (x ': xs) where
-  extractFieldValues (k :-: _)  = fail $ "Missing key " ++ show k
-  extractFieldValues (x :+: xs) = (x :+) <$> extractFieldValues xs
-  extractFieldValues (JsonFieldCaptureUnknown xs) = pure $ xs :+ JsonFieldsEmpty
+extractFieldValues :: JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
+extractFieldValues JsonFieldInvalidUnknown = pure JsonFieldsEmpty
+extractFieldValues JsonFieldIgnoreUnknown  = pure JsonFieldsEmpty
+extractFieldValues (JsonFieldCaptureUnknown xs) = pure $ xs :+ JsonFieldsEmpty
+extractFieldValues (k :-: _)  = fail $ "Missing key " ++ show k
+extractFieldValues (x :+: xs) = (x :+) <$> extractFieldValues xs
 
 jsonObjectField :: JsonFieldParse unknown fields -> Parser (JsonFieldParse unknown fields)
 jsonObjectField fields = do
@@ -202,7 +198,7 @@ jsonObjectField fields = do
 
   atKey key $ go fields
 
-jsonObject, jsonObject' :: ExtractJsonFields unknown fields => JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
+jsonObject, jsonObject' :: JsonFieldParse unknown fields -> Parser (JsonFieldValues fields)
 jsonObject fields = char '{' *> jsonObject' fields
 jsonObject' = objFirst
   where
