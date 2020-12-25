@@ -11,6 +11,7 @@
 module Text.Json.Decode
   ( ParserList (..)
   , decode
+  , requiredField
   ) where
 
 import Control.Monad.ST
@@ -40,17 +41,17 @@ data ParserList a (xs :: [ParserType]) where
   StringParser :: (BSL.ByteString -> a) -> ParserList a xs -> ParserList a ('StringParserType:xs)
 
   ArrayParser  :: ParserList b ys -> ((Int, [b]) -> a) -> ParserList a xs -> ParserList a ('ArrayParserType:xs)
-  ObjectParser :: ObjectParserData a -> ParserList a xs -> ParserList a ('ObjectParserType:xs)
+  ObjectParser :: (forall s. ObjectParserData s a) -> ParserList a xs -> ParserList a ('ObjectParserType:xs)
 
-valueParser :: ParserList a xs -> Parser a
+valueParser :: ParserList a xs -> Parser s a
 valueParser parserList = do
   c <- anyChar
   valueParser' c parserList
 
-valueParser' :: Char -> ParserList a xs -> Parser a
+valueParser' :: Char -> ParserList a xs -> Parser s a
 valueParser' c = parse
   where
-    parse :: ParserList a xs -> Parser a
+    parse :: ParserList a xs -> Parser s a
     parse = \case
       Empty -> fail $ "Unexpected " ++ show c
       NullParser x ps
@@ -75,10 +76,10 @@ valueParser' c = parse
         | c == '{'  -> objectParser parser
         | otherwise -> parse ps
 
-stringParser' :: Parser BSL.ByteString
+stringParser' :: Parser s BSL.ByteString
 stringParser' = takeWhileC (/= '"') <* char '"'
 
-arrayParser :: ParserList a xs -> Parser (Int, [a])
+arrayParser :: ParserList a xs -> Parser s (Int, [a])
 arrayParser parserList = start
   where
     start = anyChar >>= \case
@@ -96,14 +97,14 @@ arrayParser parserList = start
 
 type family Placeholder :: * where {}
 
-type FieldParserList s = [(BSL.ByteString, STRef s (Either (Parser Placeholder) Placeholder))]
+type FieldParserList s = [(BSL.ByteString, STRef s (Either (Parser s Placeholder) Placeholder))]
 
-data ObjectParserData a = ObjectParserData [(BSL.ByteString, Parser Placeholder)] (forall s. FieldParserList s -> Parser a)
+data ObjectParserData s a = ObjectParserData [(BSL.ByteString, Parser s Placeholder)] (FieldParserList s -> Parser s a)
 
-instance Functor ObjectParserData where
+instance Functor (ObjectParserData s) where
   fmap f (ObjectParserData fields getValue) = ObjectParserData fields $ fmap f . getValue
 
-instance Applicative ObjectParserData where
+instance Applicative (ObjectParserData s) where
   pure x = ObjectParserData [] $ \_ -> pure x
   ObjectParserData fields1 getF <*> ObjectParserData fields2 getX
     = ObjectParserData (fields1 ++ fields2) $ \fields -> do
@@ -111,7 +112,7 @@ instance Applicative ObjectParserData where
       x <- getX fields
       pure $ f x
 
-requiredField :: BSL.ByteString -> ParserList a xs -> ObjectParserData a
+requiredField :: BSL.ByteString -> ParserList a xs -> ObjectParserData s a
 requiredField key parserList = ObjectParserData [(key, unsafeCoerce $ valueParser parserList)] getValue
   where
     getValue fields = do
@@ -121,13 +122,13 @@ requiredField key parserList = ObjectParserData [(key, unsafeCoerce $ valueParse
           Left _ -> fail "Field missing"
           Right x -> pure x
 
-objectParser :: ObjectParserData a -> Parser a
+objectParser :: ObjectParserData s a -> Parser s a
 objectParser (ObjectParserData fields getValue) = do
   finalFields <- for fields $ \(k, p) -> (k,) <$> liftST (newSTRef (Left p))
 
   let parseField = do
         !key <- stringParser'
-        case lookup key fields of
+        case lookup key finalFields of
           Nothing -> fail $ "Unexpected key " ++ show key
           Just ref -> liftST (readSTRef ref) >>= \case
             Right _ -> fail $ "Duplicate " ++ show key
