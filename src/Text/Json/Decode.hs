@@ -15,7 +15,8 @@ module Text.Json.Decode
   ) where
 
 import Control.Monad.ST
-import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Lazy.Char8 as BSL
+import Data.Char (isDigit, ord)
 import Data.Traversable (for)
 import Data.STRef
 import Text.Json.Parser
@@ -63,8 +64,11 @@ valueParser' c = parse
       TrueParser x ps
         | c == 't'  -> x <$ string "rue"
         | otherwise -> parse ps
-      NumberParser _ ps
-        | c == '-' || ('0' <= c && c <= '9') -> fail "Number parsing is not yet implemented"
+      NumberParser f ps
+        | c == '-'  -> fail "Negative number parsing is not yet implemented"
+        | isDigit c -> do
+          rest <- takeWhileC isDigit
+          pure $ f $ BSL.foldl' (\n d -> n * 10 + ord d - ord '0') (ord c - ord '0') rest
         | otherwise -> parse ps
       StringParser f ps
         | c == '"'  -> f <$> stringParser'
