@@ -11,7 +11,7 @@ module Text.Json.Decode
 
 import qualified Data.ByteString.Lazy as BSL
 import Control.Monad.ST
-import Text.Json.Parser (Parser, runParser, anyChar, string)
+import Text.Json.Parser
 
 data ParserType
   = NullParserType
@@ -58,8 +58,8 @@ valueParser' c = parse
       NumberParser _ ps
         | c == '-' || ('0' <= c && c <= '9') -> fail "Number parsing is not yet implemented"
         | otherwise -> parse ps
-      StringParser _ ps
-        | c == '"'  -> fail "String parsing is not yet implemented"
+      StringParser f ps
+        | c == '"'  -> f <$> takeWhileC (/= '"') <* char '"'
         | otherwise -> parse ps
       ArrayParser ps
         | c == '['  -> fail "Array parsing is not yet implemented"

@@ -26,3 +26,16 @@ spec = do
       decode boolParser "true" `shouldBe` Right True
     it "null" $
       decode boolParser "null" `shouldSatisfy` isLeft
+
+  describe "string parsing" $ do
+    let stringParser = StringParser id Empty
+    it "empty string" $
+      decode stringParser "\"\"" `shouldBe` Right ""
+    it "some simple string" $
+      decode stringParser "\"asdf\"" `shouldBe` Right "asdf"
+    it "string with escaping" $
+      decode stringParser "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
+    it "missing openning quote" $
+      decode stringParser "asdf\"" `shouldSatisfy` isLeft
+    it "missing closing quote" $
+      decode stringParser "\"asdf" `shouldSatisfy` isLeft
