@@ -65,10 +65,8 @@ valueParser' c = parse
         | c == 't'  -> x <$ string "rue"
         | otherwise -> parse ps
       NumberParser f ps
-        | c == '-'  -> fail "Negative number parsing is not yet implemented"
-        | isDigit c -> do
-          rest <- takeWhileC isDigit
-          pure $ f $ BSL.foldl' (\n d -> n * 10 + ord d - ord '0') (ord c - ord '0') rest
+        | c == '-'  -> f . negate <$> (numberParser' =<< satisfy isDigit)
+        | isDigit c -> f <$> numberParser' c
         | otherwise -> parse ps
       StringParser f ps
         | c == '"'  -> f <$> stringParser'
@@ -79,6 +77,11 @@ valueParser' c = parse
       ObjectParser parser ps
         | c == '{'  -> objectParser parser
         | otherwise -> parse ps
+
+numberParser' :: Char -> Parser s Int
+numberParser' c = do
+  rest <- takeWhileC isDigit
+  pure $ BSL.foldl' (\n d -> n * 10 + ord d - ord '0') (ord c - ord '0') rest
 
 stringParser' :: Parser s BSL.ByteString
 stringParser' = takeWhileC (/= '"') <* char '"'

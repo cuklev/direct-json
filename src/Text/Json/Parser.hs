@@ -6,6 +6,7 @@ module Text.Json.Parser
   , liftST
   , anyChar
   , char
+  , satisfy
   , string
   , takeWhileC
   ) where
@@ -67,6 +68,17 @@ char c = Parser $ \_ ref -> do
       | otherwise -> do
           writeSTRef ref xs
           pure $ Right ()
+
+satisfy :: (Char -> Bool) -> Parser s Char
+satisfy f = Parser $ \_ ref -> do
+  input <- readSTRef ref
+  case BSL.uncons input of
+    Nothing -> pure $ Left "Unexpected end of input"
+    Just (x, xs)
+      | f x -> pure $ Left $ "Unexpected " ++ show x
+      | otherwise -> do
+          writeSTRef ref xs
+          pure $ Right x
 
 string :: BSL.ByteString -> Parser s ()
 string prefix = Parser $ \_ ref -> do
