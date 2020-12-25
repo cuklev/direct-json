@@ -4,6 +4,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 module Text.Json.Decode
   ( ParserList (..)
   , decode
@@ -32,7 +33,7 @@ data ParserList a (xs :: [ParserType]) where
   NumberParser :: (Int -> a) -> ParserList a xs -> ParserList a ('NumberParserType:xs)
   StringParser :: (BSL.ByteString -> a) -> ParserList a xs -> ParserList a ('StringParserType:xs)
 
-  ArrayParser  :: ParserList a xs -> ParserList a ('ArrayParserType:xs)
+  ArrayParser  :: ParserList b ys -> ((Int, [b]) -> a) -> ParserList a xs -> ParserList a ('ArrayParserType:xs)
   ObjectParser :: ParserList a xs -> ParserList a ('ObjectParserType:xs)
 
 valueParser :: ParserList a xs -> Parser a
@@ -61,12 +62,28 @@ valueParser' c = parse
       StringParser f ps
         | c == '"'  -> f <$> takeWhileC (/= '"') <* char '"'
         | otherwise -> parse ps
-      ArrayParser ps
-        | c == '['  -> fail "Array parsing is not yet implemented"
+      ArrayParser ys f ps
+        | c == '['  -> f <$> arrayParser ys
         | otherwise -> parse ps
       ObjectParser ps
         | c == '{'  -> fail "Object parsing is not yet implemented"
         | otherwise -> parse ps
+
+arrayParser :: ParserList a xs -> Parser (Int, [a])
+arrayParser parserList = start
+  where
+    start = anyChar >>= \case
+      ']' -> pure (0, [])
+      c   -> do
+        !x <- valueParser' c parserList
+        loop 1 [x]
+
+    loop !n !acc = anyChar >>= \case
+      ',' -> do
+        !x <- valueParser parserList
+        loop (n+1) (x:acc)
+      ']' -> pure (n, acc)
+      _   -> fail "Expected ',' or ']'"
 
 decode :: ParserList a xs -> BSL.ByteString -> Either String a
 decode parserList input = runST $ runParser (valueParser parserList) input

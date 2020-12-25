@@ -39,3 +39,13 @@ spec = do
       decode stringParser "asdf\"" `shouldSatisfy` isLeft
     it "missing closing quote" $
       decode stringParser "\"asdf" `shouldSatisfy` isLeft
+
+  describe "array parsing" $ do
+    let nullParser = NullParser () Empty
+        nullArrayParser = ArrayParser nullParser (\(_, xs) -> reverse xs) Empty
+    it "empty array" $
+      decode nullArrayParser "[]" `shouldBe` Right []
+    it "single value array" $
+      decode nullArrayParser "[null]" `shouldBe` Right [()]
+    it "longer array" $
+      decode nullArrayParser "[null,null,null]" `shouldBe` Right [(),(),()]
