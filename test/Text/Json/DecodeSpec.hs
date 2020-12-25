@@ -10,16 +10,15 @@ import Text.Json.Decode
 spec :: Spec
 spec = do
   describe "parsing null" $ do
-    let nullParser = NullParser () Empty
     it "success" $
-      decode nullParser "null" `shouldBe` Right ()
+      decode (parseNull ()) "null" `shouldBe` Right ()
     it "fail" $
-      decode nullParser "false" `shouldSatisfy` isLeft
+      decode (parseNull ()) "false" `shouldSatisfy` isLeft
     it "fail" $
-      decode nullParser "nulla" `shouldSatisfy` isLeft
+      decode (parseNull ()) "nulla" `shouldSatisfy` isLeft
 
   describe "bool parsing" $ do
-    let boolParser = FalseParser False $ TrueParser True Empty
+    let boolParser = parseFalse False <> parseTrue True
     it "false" $
       decode boolParser "false" `shouldBe` Right False
     it "true" $
@@ -28,21 +27,19 @@ spec = do
       decode boolParser "null" `shouldSatisfy` isLeft
 
   describe "string parsing" $ do
-    let stringParser = StringParser id Empty
     it "empty string" $
-      decode stringParser "\"\"" `shouldBe` Right ""
+      decode (parseString id) "\"\"" `shouldBe` Right ""
     it "some simple string" $
-      decode stringParser "\"asdf\"" `shouldBe` Right "asdf"
+      decode (parseString id) "\"asdf\"" `shouldBe` Right "asdf"
     it "string with escaping" $
-      decode stringParser "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
+      decode (parseString id) "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
     it "missing openning quote" $
-      decode stringParser "asdf\"" `shouldSatisfy` isLeft
+      decode (parseString id) "asdf\"" `shouldSatisfy` isLeft
     it "missing closing quote" $
-      decode stringParser "\"asdf" `shouldSatisfy` isLeft
+      decode (parseString id) "\"asdf" `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
-    let nullParser = NullParser () Empty
-        nullArrayParser = ArrayParser nullParser (\(_, xs) -> reverse xs) Empty
+    let nullArrayParser = parseArray (parseNull ()) (\(_, xs) -> reverse xs)
     it "empty array" $
       decode nullArrayParser "[]" `shouldBe` Right []
     it "single value array" $

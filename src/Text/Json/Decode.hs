@@ -1,7 +1,3 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
@@ -9,7 +5,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TupleSections #-}
 module Text.Json.Decode
-  ( ParserList (..)
+  ( parseNull
+  , parseFalse
+  , parseTrue
+  , parseNumber
+  , parseString
+  , parseArray
+  , parseObject
   , decode
   , requiredField
   ) where
@@ -22,61 +24,54 @@ import Data.STRef
 import Text.Json.Parser
 import Unsafe.Coerce (unsafeCoerce)
 
-data ParserType
-  = NullParserType
-  | FalseParserType
-  | TrueParserType
-  | NumberParserType
-  | StringParserType
-  | ArrayParserType
-  | ObjectParserType
+newtype ValueParser s a = ValueParser ((Char -> Parser s a) -> Char -> Parser s a)
 
-data ParserList a (xs :: [ParserType]) where
-  Empty        :: ParserList a '[]
+instance Semigroup (ValueParser s a) where
+  ValueParser p1 <> ValueParser p2 = ValueParser $ p1 . p2
 
-  NullParser   :: a -> ParserList a xs -> ParserList a ('NullParserType:xs)
-  FalseParser  :: a -> ParserList a xs -> ParserList a ('FalseParserType:xs)
-  TrueParser   :: a -> ParserList a xs -> ParserList a ('TrueParserType:xs)
+parseNull :: a -> ValueParser s a
+parseNull x = ValueParser $ \fallback -> \case
+  'n' -> x <$ string "ull"
+  c   -> fallback c
 
-  NumberParser :: (Int -> a) -> ParserList a xs -> ParserList a ('NumberParserType:xs)
-  StringParser :: (BSL.ByteString -> a) -> ParserList a xs -> ParserList a ('StringParserType:xs)
+parseFalse :: a -> ValueParser s a
+parseFalse x = ValueParser $ \fallback -> \case
+  'f' -> x <$ string "alse"
+  c   -> fallback c
 
-  ArrayParser  :: ParserList b ys -> ((Int, [b]) -> a) -> ParserList a xs -> ParserList a ('ArrayParserType:xs)
-  ObjectParser :: (forall s. ObjectParserData s a) -> ParserList a xs -> ParserList a ('ObjectParserType:xs)
+parseTrue :: a -> ValueParser s a
+parseTrue x = ValueParser $ \fallback -> \case
+  't' -> x <$ string "rue"
+  c   -> fallback c
 
-valueParser :: ParserList a xs -> Parser s a
-valueParser parserList = do
+parseNumber :: (Int -> a) -> ValueParser s a
+parseNumber f = ValueParser $ \fallback -> \case
+  '-' -> f . negate <$> (numberParser' =<< satisfy isDigit)
+  c | isDigit c -> f <$> numberParser' c
+    | otherwise -> fallback c
+
+parseString :: (BSL.ByteString -> a) -> ValueParser s a
+parseString f = ValueParser $ \fallback -> \case
+  '"' -> f <$> stringParser'
+  c   -> fallback c
+
+parseArray :: ValueParser s b -> ((Int, [b]) -> a) -> ValueParser s a
+parseArray single f = ValueParser $ \fallback -> \case
+  '[' -> f <$> arrayParser single
+  c   -> fallback c
+
+parseObject :: ObjectParserData s a -> ValueParser s a
+parseObject object = ValueParser $ \fallback -> \case
+  '{' -> objectParser object
+  c   -> fallback c
+
+valueParser :: ValueParser s a -> Parser s a
+valueParser parser = do
   c <- anyChar
-  valueParser' c parserList
+  valueParser' c parser
 
-valueParser' :: Char -> ParserList a xs -> Parser s a
-valueParser' c = parse
-  where
-    parse :: ParserList a xs -> Parser s a
-    parse = \case
-      Empty -> fail $ "Unexpected " ++ show c
-      NullParser x ps
-        | c == 'n'  -> x <$ string "ull"
-        | otherwise -> parse ps
-      FalseParser x ps
-        | c == 'f'  -> x <$ string "alse"
-        | otherwise -> parse ps
-      TrueParser x ps
-        | c == 't'  -> x <$ string "rue"
-        | otherwise -> parse ps
-      NumberParser f ps
-        | c == '-'  -> f . negate <$> (numberParser' =<< satisfy isDigit)
-        | isDigit c -> f <$> numberParser' c
-        | otherwise -> parse ps
-      StringParser f ps
-        | c == '"'  -> f <$> stringParser'
-        | otherwise -> parse ps
-      ArrayParser ys f ps
-        | c == '['  -> f <$> arrayParser ys
-        | otherwise -> parse ps
-      ObjectParser parser ps
-        | c == '{'  -> objectParser parser
-        | otherwise -> parse ps
+valueParser' :: Char -> ValueParser s a -> Parser s a
+valueParser' c (ValueParser p) = p (\_ -> fail $ "Unexpected " ++ show c) c
 
 numberParser' :: Char -> Parser s Int
 numberParser' c = do
@@ -86,26 +81,26 @@ numberParser' c = do
 stringParser' :: Parser s BSL.ByteString
 stringParser' = takeWhileC (/= '"') <* char '"'
 
-arrayParser :: ParserList a xs -> Parser s (Int, [a])
-arrayParser parserList = start
+arrayParser :: ValueParser s a -> Parser s (Int, [a])
+arrayParser single = start
   where
     start = anyChar >>= \case
       ']' -> pure (0, [])
       c   -> do
-        !x <- valueParser' c parserList
+        !x <- valueParser' c single
         loop 1 [x]
 
     loop !n !acc = anyChar >>= \case
       ',' -> do
-        !x <- valueParser parserList
+        !x <- valueParser single
         loop (n+1) (x:acc)
       ']' -> pure (n, acc)
       _   -> fail "Expected ',' or ']'"
 
 type family Placeholder :: * where {}
 
-type FieldParserList s = [(BSL.ByteString, Parser s Placeholder)]
-type FieldParserResultList s = [(BSL.ByteString, STRef s (Either (Parser s Placeholder) Placeholder))]
+type FieldParserList s = [(BSL.ByteString, ValueParser s Placeholder)]
+type FieldParserResultList s = [(BSL.ByteString, STRef s (Either (ValueParser s Placeholder) Placeholder))]
 
 data ObjectParserData s a = ObjectParserData (FieldParserList s -> FieldParserList s) (FieldParserResultList s -> Parser s a)
 
@@ -120,8 +115,8 @@ instance Applicative (ObjectParserData s) where
       x <- getX fields
       pure $ f x
 
-requiredField :: BSL.ByteString -> ParserList a xs -> ObjectParserData s a
-requiredField key parserList = ObjectParserData ((key, unsafeCoerce $ valueParser parserList) :) getValue
+requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s a
+requiredField key field = ObjectParserData ((key, unsafeCoerce field) :) getValue
   where
     getValue fields = do
       case lookup key fields of
@@ -142,7 +137,7 @@ objectParser (ObjectParserData makeFields getValue) = do
             Right _ -> fail $ "Duplicate " ++ show key
             Left parser -> do
               char ':'
-              !value <- parser
+              !value <- valueParser parser
               liftST $ writeSTRef ref $ Right value
 
       loop = anyChar >>= \case
@@ -160,5 +155,5 @@ objectParser (ObjectParserData makeFields getValue) = do
       loop
     _   -> fail "Expected '\"' or '}'"
 
-decode :: ParserList a xs -> BSL.ByteString -> Either String a
-decode parserList input = runST $ runParser (valueParser parserList) input
+decode :: (forall s. ValueParser s a) -> BSL.ByteString -> Either String a
+decode parser input = runST $ runParser (valueParser parser) input
