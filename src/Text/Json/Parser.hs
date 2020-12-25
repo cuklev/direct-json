@@ -3,6 +3,7 @@
 module Text.Json.Parser
   ( Parser
   , runParser
+  , liftST
   , anyChar
   , char
   , string
@@ -43,6 +44,9 @@ instance MonadFail Parser where
 
 runParser :: Parser a -> BSL.ByteString -> ST s (Either String a)
 runParser (Parser p) input = p Location =<< newSTRef input
+
+liftST :: (forall s. ST s a) -> Parser a
+liftST action = Parser $ \_ _ -> fmap Right action
 
 anyChar :: Parser Char
 anyChar = Parser $ \_ ref -> do

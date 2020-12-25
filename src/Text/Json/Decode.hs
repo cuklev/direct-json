@@ -5,14 +5,20 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 module Text.Json.Decode
   ( ParserList (..)
   , decode
   ) where
 
-import qualified Data.ByteString.Lazy as BSL
 import Control.Monad.ST
+import qualified Data.ByteString.Lazy as BSL
+import Data.Traversable (for)
+import Data.STRef
 import Text.Json.Parser
+import Unsafe.Coerce (unsafeCoerce)
 
 data ParserType
   = NullParserType
@@ -34,7 +40,7 @@ data ParserList a (xs :: [ParserType]) where
   StringParser :: (BSL.ByteString -> a) -> ParserList a xs -> ParserList a ('StringParserType:xs)
 
   ArrayParser  :: ParserList b ys -> ((Int, [b]) -> a) -> ParserList a xs -> ParserList a ('ArrayParserType:xs)
-  ObjectParser :: ParserList a xs -> ParserList a ('ObjectParserType:xs)
+  ObjectParser :: ObjectParserData a -> ParserList a xs -> ParserList a ('ObjectParserType:xs)
 
 valueParser :: ParserList a xs -> Parser a
 valueParser parserList = do
@@ -60,14 +66,17 @@ valueParser' c = parse
         | c == '-' || ('0' <= c && c <= '9') -> fail "Number parsing is not yet implemented"
         | otherwise -> parse ps
       StringParser f ps
-        | c == '"'  -> f <$> takeWhileC (/= '"') <* char '"'
+        | c == '"'  -> f <$> stringParser'
         | otherwise -> parse ps
       ArrayParser ys f ps
         | c == '['  -> f <$> arrayParser ys
         | otherwise -> parse ps
-      ObjectParser ps
-        | c == '{'  -> fail "Object parsing is not yet implemented"
+      ObjectParser parser ps
+        | c == '{'  -> objectParser parser
         | otherwise -> parse ps
+
+stringParser' :: Parser BSL.ByteString
+stringParser' = takeWhileC (/= '"') <* char '"'
 
 arrayParser :: ParserList a xs -> Parser (Int, [a])
 arrayParser parserList = start
@@ -84,6 +93,63 @@ arrayParser parserList = start
         loop (n+1) (x:acc)
       ']' -> pure (n, acc)
       _   -> fail "Expected ',' or ']'"
+
+type family Placeholder :: * where {}
+
+type FieldParserList s = [(BSL.ByteString, STRef s (Either (Parser Placeholder) Placeholder))]
+
+data ObjectParserData a = ObjectParserData [(BSL.ByteString, Parser Placeholder)] (forall s. FieldParserList s -> Parser a)
+
+instance Functor ObjectParserData where
+  fmap f (ObjectParserData fields getValue) = ObjectParserData fields $ fmap f . getValue
+
+instance Applicative ObjectParserData where
+  pure x = ObjectParserData [] $ \_ -> pure x
+  ObjectParserData fields1 getF <*> ObjectParserData fields2 getX
+    = ObjectParserData (fields1 ++ fields2) $ \fields -> do
+      f <- getF fields
+      x <- getX fields
+      pure $ f x
+
+requiredField :: BSL.ByteString -> ParserList a xs -> ObjectParserData a
+requiredField key parserList = ObjectParserData [(key, unsafeCoerce $ valueParser parserList)] getValue
+  where
+    getValue fields = do
+      case lookup key fields of
+        Nothing -> fail "not found"
+        Just ref -> liftST (readSTRef $ unsafeCoerce ref) >>= \case
+          Left _ -> fail "Field missing"
+          Right x -> pure x
+
+objectParser :: ObjectParserData a -> Parser a
+objectParser (ObjectParserData fields getValue) = do
+  finalFields <- for fields $ \(k, p) -> (k,) <$> liftST (newSTRef (Left p))
+
+  let parseField = do
+        !key <- stringParser'
+        case lookup key fields of
+          Nothing -> fail $ "Unexpected key " ++ show key
+          Just ref -> liftST (readSTRef ref) >>= \case
+            Right _ -> fail $ "Duplicate " ++ show key
+            Left parser -> do
+              char ':'
+              !value <- parser
+              liftST $ writeSTRef ref $ Right value
+
+      loop = anyChar >>= \case
+        ',' -> do
+          char '"'
+          parseField
+          loop
+        '}' -> getValue finalFields
+        _   -> fail "Expected ',' or '}'"
+
+  anyChar >>= \case
+    '}' -> getValue finalFields
+    '"' -> do
+      parseField
+      loop
+    _   -> fail "Expected '\"' or '}'"
 
 decode :: ParserList a xs -> BSL.ByteString -> Either String a
 decode parserList input = runST $ runParser (valueParser parserList) input
