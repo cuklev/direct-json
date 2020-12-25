@@ -101,23 +101,24 @@ arrayParser parserList = start
 
 type family Placeholder :: * where {}
 
-type FieldParserList s = [(BSL.ByteString, STRef s (Either (Parser s Placeholder) Placeholder))]
+type FieldParserList s = [(BSL.ByteString, Parser s Placeholder)]
+type FieldParserResultList s = [(BSL.ByteString, STRef s (Either (Parser s Placeholder) Placeholder))]
 
-data ObjectParserData s a = ObjectParserData [(BSL.ByteString, Parser s Placeholder)] (FieldParserList s -> Parser s a)
+data ObjectParserData s a = ObjectParserData (FieldParserList s -> FieldParserList s) (FieldParserResultList s -> Parser s a)
 
 instance Functor (ObjectParserData s) where
   fmap f (ObjectParserData fields getValue) = ObjectParserData fields $ fmap f . getValue
 
 instance Applicative (ObjectParserData s) where
-  pure x = ObjectParserData [] $ \_ -> pure x
+  pure x = ObjectParserData id $ \_ -> pure x
   ObjectParserData fields1 getF <*> ObjectParserData fields2 getX
-    = ObjectParserData (fields1 ++ fields2) $ \fields -> do
+    = ObjectParserData (fields1 . fields2) $ \fields -> do
       f <- getF fields
       x <- getX fields
       pure $ f x
 
 requiredField :: BSL.ByteString -> ParserList a xs -> ObjectParserData s a
-requiredField key parserList = ObjectParserData [(key, unsafeCoerce $ valueParser parserList)] getValue
+requiredField key parserList = ObjectParserData ((key, unsafeCoerce $ valueParser parserList) :) getValue
   where
     getValue fields = do
       case lookup key fields of
@@ -127,8 +128,8 @@ requiredField key parserList = ObjectParserData [(key, unsafeCoerce $ valueParse
           Right x -> pure x
 
 objectParser :: ObjectParserData s a -> Parser s a
-objectParser (ObjectParserData fields getValue) = do
-  finalFields <- for fields $ \(k, p) -> (k,) <$> liftST (newSTRef (Left p))
+objectParser (ObjectParserData makeFields getValue) = do
+  finalFields <- for (makeFields []) $ \(k, p) -> (k,) <$> liftST (newSTRef (Left p))
 
   let parseField = do
         !key <- stringParser'
