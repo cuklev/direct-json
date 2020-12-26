@@ -27,6 +27,22 @@ spec = do
     it "wrong constant" $
       decode boolParser "null" `shouldSatisfy` isLeft
 
+  describe "number parsing" $ do
+    let numberParser = parseNumber id
+    it "0" $
+      decode numberParser "0" `shouldBe` Right 0
+    it "4" $
+      decode numberParser "4" `shouldBe` Right 4
+    it "1234" $
+      decode numberParser "1234" `shouldBe` Right 1234
+    it "-4" $
+      decode numberParser "-4" `shouldBe` Right (-4)
+    it "1234" $
+      decode numberParser "-1234" `shouldBe` Right (-1234)
+
+    it "01 should be invalid" $
+      decode numberParser "01" `shouldSatisfy` isLeft
+
   describe "string parsing" $ do
     it "empty string" $
       decode (parseString id) "\"\"" `shouldBe` Right ""

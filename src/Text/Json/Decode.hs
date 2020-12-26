@@ -49,6 +49,7 @@ parseTrue x = ValueParser $ \fallback -> \case
 parseNumber :: (Int -> a) -> ValueParser s a
 parseNumber f = ValueParser $ \fallback -> \case
   '-' -> f . negate <$> (numberParser' =<< satisfy isDigit)
+  '0' -> pure $ f 0
   c | isDigit c -> f <$> numberParser' c
     | otherwise -> fallback c
 

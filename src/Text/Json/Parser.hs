@@ -105,10 +105,10 @@ satisfy f = Parser $ \loc ref -> do
   case BSL.uncons input of
     Nothing -> pure $ Left ("Unexpected end of input", loc)
     Just (x, xs)
-      | f x -> pure $ Left ("Unexpected " ++ show x, loc)
-      | otherwise -> do
+      | f x -> do
           writeSTRef ref xs
           pure $ Right x
+      | otherwise -> pure $ Left ("Unexpected " ++ show x, loc)
 
 string :: BSL.ByteString -> Parser s ()
 string prefix = Parser $ \loc ref -> do
