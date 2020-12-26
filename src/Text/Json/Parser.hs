@@ -4,6 +4,9 @@ module Text.Json.Parser
   ( Parser
   , runParser
   , liftST
+  , atArrayIndex
+  , atObjectKey
+  , showError
   , anyChar
   , char
   , satisfy
@@ -16,9 +19,11 @@ import Data.Bifunctor (second)
 import Data.STRef
 import Control.Monad.ST
 
-data Location = Location
+data Location
+  = LocationArrayIndex !Int
+  | LocationObjectKey !BSL.ByteString
 
-newtype Parser s a = Parser (Location -> STRef s BSL.ByteString -> ST s (Either String a))
+newtype Parser s a = Parser ([Location] -> STRef s BSL.ByteString -> ST s (Either (String, [Location]) a))
 
 instance Functor (Parser s) where
   fmap f (Parser parser) = Parser $ \loc ref -> second f <$> parser loc ref
@@ -41,50 +46,66 @@ instance Monad (Parser s) where
         p2 loc ref
 
 instance MonadFail (Parser s) where
-  fail msg = Parser $ \_ _ -> pure $ Left msg
+  fail msg = Parser $ \loc _ -> pure $ Left (msg, loc)
 
-runParser :: Parser s a -> BSL.ByteString -> ST s (Either String a)
-runParser (Parser p) input = p Location =<< newSTRef input
+runParser :: Parser s a -> BSL.ByteString -> ST s (Either (String, [Location]) a)
+runParser (Parser p) input = p [] =<< newSTRef input
 
 liftST :: ST s a -> Parser s a
 liftST action = Parser $ \_ _ -> fmap Right action
 
+atLocation :: Location -> Parser s a -> Parser s a
+atLocation sub (Parser parser) = Parser $ parser . (sub:)
+
+atArrayIndex :: Int -> Parser s a -> Parser s a
+atArrayIndex = atLocation . LocationArrayIndex
+
+atObjectKey :: BSL.ByteString -> Parser s a -> Parser s a
+atObjectKey = atLocation . LocationObjectKey
+
+showError :: (String, [Location]) -> String
+showError (msg, locs) = "$" ++ concatMap showLocation (reverse locs) ++ ": " ++ msg
+  where
+    showLocation = \case
+      LocationArrayIndex index -> "[" ++ show index ++ "]"
+      LocationObjectKey  key   -> "[" ++ show key   ++ "]"
+
 anyChar :: Parser s Char
-anyChar = Parser $ \_ ref -> do
+anyChar = Parser $ \loc ref -> do
   input <- readSTRef ref
   case BSL.uncons input of
-    Nothing -> pure $ Left "Unexpected end of input"
+    Nothing -> pure $ Left ("Unexpected end of input", loc)
     Just (x, xs) -> do
       writeSTRef ref xs
       pure $ Right x
 
 char :: Char -> Parser s ()
-char c = Parser $ \_ ref -> do
+char c = Parser $ \loc ref -> do
   input <- readSTRef ref
   case BSL.uncons input of
-    Nothing -> pure $ Left "Unexpected end of input"
+    Nothing -> pure $ Left ("Unexpected end of input", loc)
     Just (x, xs)
-      | c /= x -> pure $ Left $ "Unexpected " ++ show x
+      | c /= x -> pure $ Left ("Unexpected " ++ show x, loc)
       | otherwise -> do
           writeSTRef ref xs
           pure $ Right ()
 
 satisfy :: (Char -> Bool) -> Parser s Char
-satisfy f = Parser $ \_ ref -> do
+satisfy f = Parser $ \loc ref -> do
   input <- readSTRef ref
   case BSL.uncons input of
-    Nothing -> pure $ Left "Unexpected end of input"
+    Nothing -> pure $ Left ("Unexpected end of input", loc)
     Just (x, xs)
-      | f x -> pure $ Left $ "Unexpected " ++ show x
+      | f x -> pure $ Left ("Unexpected " ++ show x, loc)
       | otherwise -> do
           writeSTRef ref xs
           pure $ Right x
 
 string :: BSL.ByteString -> Parser s ()
-string prefix = Parser $ \_ ref -> do
+string prefix = Parser $ \loc ref -> do
   input <- readSTRef ref
   case BSL.stripPrefix prefix input of
-    Nothing -> pure $ Left "no match"
+    Nothing -> pure $ Left ("no match", loc)
     Just suffix -> do
       writeSTRef ref suffix
       pure $ Right ()

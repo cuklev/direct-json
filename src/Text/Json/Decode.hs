@@ -20,7 +20,7 @@ module Text.Json.Decode
   ) where
 
 import Control.Monad.ST
-import Data.Bifunctor (second)
+import Data.Bifunctor (first, second)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (isDigit, ord)
 import Data.STRef
@@ -71,7 +71,7 @@ parseObject (ObjectParserData obj) = ValueParser $ \fallback -> \case
         parseField = do
           !key <- stringParser'
           char ':'
-          storeValue key
+          atObjectKey key $ storeValue key
 
         loop = anyChar >>= \case
           ',' -> do
@@ -122,12 +122,12 @@ arrayParser single = start
     start = anyChar >>= \case
       ']' -> pure (0, [])
       c   -> do
-        !x <- valueParser' c single
+        !x <- atArrayIndex 0 $ valueParser' c single
         loop 1 [x]
 
     loop !n !acc = anyChar >>= \case
       ',' -> do
-        !x <- valueParser single
+        !x <- atArrayIndex n $ valueParser single
         loop (n+1) (x:acc)
       ']' -> pure (n, acc)
       _   -> fail "Expected ',' or ']'"
@@ -184,4 +184,4 @@ captureFields single = ObjectParserData $ do
   pure (storeValue, getValue)
 
 decode :: (forall s. ValueParser s a) -> BSL.ByteString -> Either String a
-decode parser input = runST $ runParser (valueParser parser) input
+decode parser input = first showError $ runST $ runParser (valueParser parser) input
