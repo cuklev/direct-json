@@ -127,7 +127,7 @@ requiredField key field = ObjectParserData ((key, unsafeCoerce field) :) getValu
 
 objectParser :: ObjectParserData s a -> Parser s a
 objectParser (ObjectParserData makeFields getValue) = do
-  finalFields <- for (makeFields []) $ \(k, p) -> (k,) <$> liftST (newSTRef (Left p))
+  finalFields <- liftST $ for (makeFields []) $ \(k, p) -> (k,) <$> newSTRef (Left p)
 
   let parseField = do
         !key <- stringParser'
