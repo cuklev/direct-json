@@ -10,11 +10,11 @@ import Text.Json.Decode
 spec :: Spec
 spec = do
   describe "parsing null" $ do
-    it "success" $
+    it "null constant" $
       decode (parseNull ()) "null" `shouldBe` Right ()
-    it "fail" $
-      decode (parseNull ()) "false" `shouldSatisfy` isLeft
-    it "fail" $
+    it "wrong constant" $
+      decode (parseNull ()) "everything" `shouldSatisfy` isLeft
+    it "excess input" $
       decode (parseNull ()) "nulla" `shouldSatisfy` isLeft
 
   describe "bool parsing" $ do
@@ -23,7 +23,7 @@ spec = do
       decode boolParser "false" `shouldBe` Right False
     it "true" $
       decode boolParser "true" `shouldBe` Right True
-    it "null" $
+    it "wrong constant" $
       decode boolParser "null" `shouldSatisfy` isLeft
 
   describe "string parsing" $ do
