@@ -16,6 +16,7 @@ module Text.Json.Decode
   , requiredField
   , optionalField
   , ignoreAnyField
+  , captureFields
   ) where
 
 import Control.Monad.ST
@@ -171,6 +172,15 @@ ignoreAnyField :: ObjectParserData s ()
 ignoreAnyField = ObjectParserData $ do
   let storeValue _ _ = valueParser parseIgnore
       getValue = pure ()
+  pure (storeValue, getValue)
+
+captureFields :: ValueParser s a -> ObjectParserData s [(BSL.ByteString, a)]
+captureFields single = ObjectParserData $ do
+  ref <- liftST $ newSTRef []
+  let storeValue _ key = do
+        !value <- valueParser single
+        liftST $ modifySTRef' ref ((key, value) :)
+      getValue = liftST (readSTRef ref)
   pure (storeValue, getValue)
 
 decode :: (forall s. ValueParser s a) -> BSL.ByteString -> Either String a
