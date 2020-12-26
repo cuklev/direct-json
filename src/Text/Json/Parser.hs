@@ -49,7 +49,15 @@ instance MonadFail (Parser s) where
   fail msg = Parser $ \loc _ -> pure $ Left (msg, loc)
 
 runParser :: Parser s a -> BSL.ByteString -> ST s (Either (String, [Location]) a)
-runParser (Parser p) input = p [] =<< newSTRef input
+runParser json input = parser [] =<< newSTRef input
+  where Parser parser = json <* eof
+
+eof :: Parser s ()
+eof = Parser $ \loc ref -> do
+  input <- readSTRef ref
+  pure $ if BSL.null input
+    then Right ()
+    else Left ("Expected end of input", loc)
 
 liftST :: ST s a -> Parser s a
 liftST action = Parser $ \_ _ -> fmap Right action
