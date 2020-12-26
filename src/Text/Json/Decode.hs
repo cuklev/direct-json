@@ -13,6 +13,7 @@ module Text.Json.Decode
   , parseObject
   , decode
   , requiredField
+  , optionalField
   ) where
 
 import Control.Monad.ST
@@ -109,8 +110,8 @@ instance Applicative (ObjectParserData s) where
       (f2, px) <- mx
       pure ((f1 . f2), pf <*> px)
 
-requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s a
-requiredField key field = ObjectParserData $ do
+someField :: (Maybe a -> Parser s b) -> BSL.ByteString -> ValueParser s a -> ObjectParserData s b
+someField modify key field = ObjectParserData $ do
   ref <- liftST $ newSTRef Nothing
   let storeValue = do
         !value <- valueParser field
@@ -118,11 +119,16 @@ requiredField key field = ObjectParserData $ do
           Nothing -> liftST $ writeSTRef ref $ Just value
           Just _  -> fail $ "Duplicate key: " ++ show key
 
-      getValue = liftST (readSTRef ref) >>= \case
-        Nothing -> fail $ "Missing key: " ++ show key
-        Just x -> pure x
+      getValue = modify =<< liftST (readSTRef ref)
 
   pure (((key, storeValue) :), getValue)
+
+requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s a
+requiredField key = someField (maybe missing pure) key
+  where missing = fail $ "Missing key: " ++ show key
+
+optionalField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s (Maybe a)
+optionalField = someField pure
 
 objectParser :: ObjectParserData s a -> Parser s a
 objectParser (ObjectParserData obj) = do
