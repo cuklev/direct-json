@@ -59,22 +59,27 @@ parseString f = ValueParser $ \fallback -> \case
 
 parseArray :: ValueParser s b -> ((Int, [b]) -> a) -> ValueParser s a
 parseArray single f = ValueParser $ \fallback -> \case
-  '[' -> f <$> arrayParser single
+  '[' -> skipWhile jsonWhitespace
+      *> (f <$> arrayParser single)
   c   -> fallback c
 
 parseObject :: ObjectParserData s a -> ValueParser s a
 parseObject (ObjectParserData obj) = ValueParser $ \fallback -> \case
   '{' -> do
+    skipWhile jsonWhitespace
     (makeStoreValue, getValue) <- obj
     let storeValue = makeStoreValue $ \key -> fail $ "Unexpected key: " ++ show key
 
         parseField = do
           !key <- stringParser'
+          skipWhile jsonWhitespace
           char ':'
+          skipWhile jsonWhitespace
           atObjectKey key $ storeValue key
 
         loop = anyChar >>= \case
           ',' -> do
+            skipWhile jsonWhitespace
             char '"'
             parseField
             loop
@@ -107,6 +112,7 @@ valueParser parser = do
 
 valueParser' :: Char -> ValueParser s a -> Parser s a
 valueParser' c (ValueParser p) = p (\_ -> fail $ "Unexpected " ++ show c) c
+                              <* skipWhile jsonWhitespace
 
 numberParser' :: Char -> Parser s Int
 numberParser' c = do
@@ -127,6 +133,7 @@ arrayParser single = start
 
     loop !n !acc = anyChar >>= \case
       ',' -> do
+        skipWhile jsonWhitespace
         !x <- atArrayIndex n $ valueParser single
         loop (n+1) (x:acc)
       ']' -> pure (n, acc)
@@ -184,4 +191,7 @@ captureFields single = ObjectParserData $ do
   pure (storeValue, getValue)
 
 decode :: (forall s. ValueParser s a) -> BSL.ByteString -> Either String a
-decode parser input = first showError $ runST $ runParser (valueParser parser) input
+decode parser input = first showError $ runST $ runParser (valueParser parser <* skipWhile jsonWhitespace) $ BSL.dropWhile jsonWhitespace input
+
+jsonWhitespace :: Char -> Bool
+jsonWhitespace c = c == ' ' || c == '\n' || c == '\r' || c == '\t'

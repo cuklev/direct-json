@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ApplicativeDo #-}
 module Text.Json.DecodeSpec
   ( spec
   ) where
@@ -46,3 +47,42 @@ spec = do
       decode nullArrayParser "[null]" `shouldBe` Right [()]
     it "longer array" $
       decode nullArrayParser "[null,null,null]" `shouldBe` Right [(),(),()]
+
+  describe "object parsing" $ do
+    describe "fail on unknown fields" $ do
+      let parser = parseObject $ pure ()
+      it "empty object" $
+        decode parser "{}" `shouldBe` Right ()
+      it "unexpected field" $
+        decode parser "{\"name\":\"pesho\"}" `shouldSatisfy` isLeft
+
+    describe "ignore unknown fields" $ do
+      let parser = parseObject ignoreAnyField
+      it "empty object" $
+        decode parser "{}" `shouldBe` Right ()
+      it "several fields" $
+        decode parser "{\"name\":\"pesho\",\"age\":42}" `shouldBe` Right ()
+
+    describe "capture unknown fields" $ do
+      let parser = parseObject $ captureFields $ parseString id
+      it "empty object" $
+        decode parser "{}" `shouldBe` Right []
+      it "several fields" $
+        decode parser "{\"name\":\"pesho\",\"label\":\"gosho\"}" `shouldBe` Right [("label","gosho"),("name","pesho")]
+
+    describe "parsing required fields" $ do
+      let parser = parseObject $ do
+            x <- requiredField "name" $ parseString id
+            y <- requiredField "age"  $ parseNumber id
+            pure (x, y)
+      it "fields present in order" $
+        decode parser "{\"name\":\"pesho\",\"age\":42}" `shouldBe` Right ("pesho", 42)
+      it "fields present out of order" $
+        decode parser "{\"age\":42,\"name\":\"pesho\"}" `shouldBe` Right ("pesho", 42)
+      it "missing field" $
+        decode parser "{\"name\":\"pesho\"}" `shouldSatisfy` isLeft
+      it "excess field" $
+        decode parser "{\"age\":42,\"deleted\":false,\"name\":\"pesho\"}" `shouldSatisfy` isLeft
+
+  it "spaces around tokens" $
+    decode parseIgnore " [ false , true , null , 42 , { \"name\" : \"pesho\" } ] " `shouldBe` Right ()

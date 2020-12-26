@@ -12,6 +12,7 @@ module Text.Json.Parser
   , satisfy
   , string
   , takeWhileC
+  , skipWhile
   ) where
 
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -124,3 +125,8 @@ takeWhileC f = Parser $ \_ ref -> do
   let (prefix, suffix) = BSL.span f input
   writeSTRef ref suffix
   pure $ Right prefix
+
+skipWhile :: (Char -> Bool) -> Parser s ()
+skipWhile f = Parser $ \_ ref -> do
+  modifySTRef' ref $ BSL.dropWhile f
+  pure $ Right ()
