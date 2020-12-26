@@ -11,9 +11,11 @@ module Text.Json.Decode
   , parseString
   , parseArray
   , parseObject
+  , parseIgnore
   , decode
   , requiredField
   , optionalField
+  , ignoreAnyField
   ) where
 
 import Control.Monad.ST
@@ -60,9 +62,42 @@ parseArray single f = ValueParser $ \fallback -> \case
   c   -> fallback c
 
 parseObject :: ObjectParserData s a -> ValueParser s a
-parseObject object = ValueParser $ \fallback -> \case
-  '{' -> objectParser object
+parseObject (ObjectParserData obj) = ValueParser $ \fallback -> \case
+  '{' -> do
+    (makeStoreValue, getValue) <- obj
+    let storeValue = makeStoreValue $ \key -> fail $ "Unexpected key: " ++ show key
+
+        parseField = do
+          !key <- stringParser'
+          char ':'
+          storeValue key
+
+        loop = anyChar >>= \case
+          ',' -> do
+            char '"'
+            parseField
+            loop
+          '}' -> getValue
+          _   -> fail "Expected ',' or '}'"
+
+    anyChar >>= \case
+      '}' -> getValue
+      '"' -> do
+        parseField
+        loop
+      _   -> fail "Expected '\"' or '}'"
+
   c   -> fallback c
+
+-- |Parses any valid json value and ignores it
+parseIgnore :: ValueParser s ()
+parseIgnore = parseNull ()
+           <> parseFalse ()
+           <> parseTrue ()
+           <> parseNumber (const ())
+           <> parseString (const ())
+           <> parseArray parseIgnore (const ())
+           <> parseObject ignoreAnyField
 
 valueParser :: ValueParser s a -> Parser s a
 valueParser parser = do
@@ -96,8 +131,8 @@ arrayParser single = start
       ']' -> pure (n, acc)
       _   -> fail "Expected ',' or ']'"
 
-type FieldParserList s = [(BSL.ByteString, Parser s ())]
-newtype ObjectParserData s a = ObjectParserData (Parser s (FieldParserList s -> FieldParserList s, Parser s a))
+type FieldParser s = BSL.ByteString -> Parser s ()
+newtype ObjectParserData s a = ObjectParserData (Parser s (FieldParser s -> FieldParser s, Parser s a))
 
 instance Functor (ObjectParserData s) where
   fmap f (ObjectParserData obj) = ObjectParserData $ fmap (second (fmap f)) obj
@@ -108,20 +143,22 @@ instance Applicative (ObjectParserData s) where
     = ObjectParserData $ do
       (f1, pf) <- mf
       (f2, px) <- mx
-      pure ((f1 . f2), pf <*> px)
+      pure (f1 . f2, pf <*> px)
 
 someField :: (Maybe a -> Parser s b) -> BSL.ByteString -> ValueParser s a -> ObjectParserData s b
 someField modify key field = ObjectParserData $ do
   ref <- liftST $ newSTRef Nothing
-  let storeValue = do
-        !value <- valueParser field
-        liftST (readSTRef ref) >>= \case
-          Nothing -> liftST $ writeSTRef ref $ Just value
-          Just _  -> fail $ "Duplicate key: " ++ show key
+  let storeValue fallback k
+        | k /= key = fallback k
+        | otherwise = do
+          !value <- valueParser field
+          liftST (readSTRef ref) >>= \case
+            Nothing -> liftST $ writeSTRef ref $ Just value
+            Just _  -> fail $ "Duplicate key: " ++ show key
 
       getValue = modify =<< liftST (readSTRef ref)
 
-  pure (((key, storeValue) :), getValue)
+  pure (storeValue, getValue)
 
 requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s a
 requiredField key = someField (maybe missing pure) key
@@ -130,33 +167,11 @@ requiredField key = someField (maybe missing pure) key
 optionalField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s (Maybe a)
 optionalField = someField pure
 
-objectParser :: ObjectParserData s a -> Parser s a
-objectParser (ObjectParserData obj) = do
-  (makeFields, getValue) <- obj
-  let fields = makeFields []
-
-      parseField = do
-        !key <- stringParser'
-        case lookup key fields of
-          Nothing -> fail $ "Unexpected key: " ++ show key
-          Just parse -> do
-            char ':'
-            parse
-
-      loop = anyChar >>= \case
-        ',' -> do
-          char '"'
-          parseField
-          loop
-        '}' -> getValue
-        _   -> fail "Expected ',' or '}'"
-
-  anyChar >>= \case
-    '}' -> getValue
-    '"' -> do
-      parseField
-      loop
-    _   -> fail "Expected '\"' or '}'"
+ignoreAnyField :: ObjectParserData s ()
+ignoreAnyField = ObjectParserData $ do
+  let storeValue _ _ = valueParser parseIgnore
+      getValue = pure ()
+  pure (storeValue, getValue)
 
 decode :: (forall s. ValueParser s a) -> BSL.ByteString -> Either String a
 decode parser input = runST $ runParser (valueParser parser) input
