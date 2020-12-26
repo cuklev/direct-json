@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TupleSections #-}
 module Text.Json.Decode
   ( parseNull
@@ -17,12 +16,11 @@ module Text.Json.Decode
   ) where
 
 import Control.Monad.ST
+import Data.Bifunctor (second)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (isDigit, ord)
-import Data.Traversable (for)
 import Data.STRef
 import Text.Json.Parser
-import Unsafe.Coerce (unsafeCoerce)
 
 newtype ValueParser s a = ValueParser ((Char -> Parser s a) -> Char -> Parser s a)
 
@@ -97,59 +95,58 @@ arrayParser single = start
       ']' -> pure (n, acc)
       _   -> fail "Expected ',' or ']'"
 
-type family Placeholder :: * where {}
-
-type FieldParserList s = [(BSL.ByteString, ValueParser s Placeholder)]
-type FieldParserResultList s = [(BSL.ByteString, STRef s (Either (ValueParser s Placeholder) Placeholder))]
-
-data ObjectParserData s a = ObjectParserData (FieldParserList s -> FieldParserList s) (FieldParserResultList s -> Parser s a)
+type FieldParserList s = [(BSL.ByteString, Parser s ())]
+newtype ObjectParserData s a = ObjectParserData (Parser s (FieldParserList s -> FieldParserList s, Parser s a))
 
 instance Functor (ObjectParserData s) where
-  fmap f (ObjectParserData fields getValue) = ObjectParserData fields $ fmap f . getValue
+  fmap f (ObjectParserData obj) = ObjectParserData $ fmap (second (fmap f)) obj
 
 instance Applicative (ObjectParserData s) where
-  pure x = ObjectParserData id $ \_ -> pure x
-  ObjectParserData fields1 getF <*> ObjectParserData fields2 getX
-    = ObjectParserData (fields1 . fields2) $ \fields -> do
-      f <- getF fields
-      x <- getX fields
-      pure $ f x
+  pure x = ObjectParserData $ pure (id, pure x)
+  ObjectParserData mf <*> ObjectParserData mx
+    = ObjectParserData $ do
+      (f1, pf) <- mf
+      (f2, px) <- mx
+      pure ((f1 . f2), pf <*> px)
 
 requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s a
-requiredField key field = ObjectParserData ((key, unsafeCoerce field) :) getValue
-  where
-    getValue fields = do
-      case lookup key fields of
-        Nothing -> fail "not found"
-        Just ref -> liftST (readSTRef $ unsafeCoerce ref) >>= \case
-          Left _ -> fail "Field missing"
-          Right x -> pure x
+requiredField key field = ObjectParserData $ do
+  ref <- liftST $ newSTRef Nothing
+  let storeValue = do
+        !value <- valueParser field
+        liftST (readSTRef ref) >>= \case
+          Nothing -> liftST $ writeSTRef ref $ Just value
+          Just _  -> fail $ "Duplicate key: " ++ show key
+
+      getValue = liftST (readSTRef ref) >>= \case
+        Nothing -> fail $ "Missing key: " ++ show key
+        Just x -> pure x
+
+  pure (((key, storeValue) :), getValue)
 
 objectParser :: ObjectParserData s a -> Parser s a
-objectParser (ObjectParserData makeFields getValue) = do
-  finalFields <- liftST $ for (makeFields []) $ \(k, p) -> (k,) <$> newSTRef (Left p)
+objectParser (ObjectParserData obj) = do
+  (makeFields, getValue) <- obj
+  let fields = makeFields []
 
-  let parseField = do
+      parseField = do
         !key <- stringParser'
-        case lookup key finalFields of
-          Nothing -> fail $ "Unexpected key " ++ show key
-          Just ref -> liftST (readSTRef ref) >>= \case
-            Right _ -> fail $ "Duplicate " ++ show key
-            Left parser -> do
-              char ':'
-              !value <- valueParser parser
-              liftST $ writeSTRef ref $ Right value
+        case lookup key fields of
+          Nothing -> fail $ "Unexpected key: " ++ show key
+          Just parse -> do
+            char ':'
+            parse
 
       loop = anyChar >>= \case
         ',' -> do
           char '"'
           parseField
           loop
-        '}' -> getValue finalFields
+        '}' -> getValue
         _   -> fail "Expected ',' or '}'"
 
   anyChar >>= \case
-    '}' -> getValue finalFields
+    '}' -> getValue
     '"' -> do
       parseField
       loop
