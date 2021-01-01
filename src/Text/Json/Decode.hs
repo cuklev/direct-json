@@ -161,9 +161,7 @@ someField modify key field = ObjectParserData $ do
         | k /= key = fallback k
         | otherwise = do
           !value <- valueParser field
-          liftST (readSTRef ref) >>= \case
-            Nothing -> liftST $ writeSTRef ref $ Just value
-            Just _  -> fail $ "Duplicate key: " ++ show key
+          liftST $ writeSTRef ref $ Just value
 
       getValue = modify =<< liftST (readSTRef ref)
 
