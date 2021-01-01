@@ -64,8 +64,8 @@ parseArray single f = ValueParser $ \fallback -> \case
       *> (f <$> arrayParser single)
   c   -> fallback c
 
-parseObject :: ObjectParserData s a -> ValueParser s a
-parseObject (ObjectParserData obj) = ValueParser $ \fallback -> \case
+parseObject :: ObjectParser s a -> ValueParser s a
+parseObject (ObjectParser obj) = ValueParser $ \fallback -> \case
   '{' -> do
     skipWhile jsonWhitespace
     (makeStoreValue, getValue) <- obj
@@ -141,21 +141,21 @@ arrayParser single = start
       _   -> fail "Expected ',' or ']'"
 
 type FieldParser s = BSL.ByteString -> Parser s ()
-newtype ObjectParserData s a = ObjectParserData (Parser s (FieldParser s -> FieldParser s, Parser s a))
+newtype ObjectParser s a = ObjectParser (Parser s (FieldParser s -> FieldParser s, Parser s a))
 
-instance Functor (ObjectParserData s) where
-  fmap f (ObjectParserData obj) = ObjectParserData $ fmap (second (fmap f)) obj
+instance Functor (ObjectParser s) where
+  fmap f (ObjectParser obj) = ObjectParser $ fmap (second (fmap f)) obj
 
-instance Applicative (ObjectParserData s) where
-  pure x = ObjectParserData $ pure (id, pure x)
-  ObjectParserData mf <*> ObjectParserData mx
-    = ObjectParserData $ do
+instance Applicative (ObjectParser s) where
+  pure x = ObjectParser $ pure (id, pure x)
+  ObjectParser mf <*> ObjectParser mx
+    = ObjectParser $ do
       (f1, pf) <- mf
       (f2, px) <- mx
       pure (f1 . f2, pf <*> px)
 
-someField :: (Maybe a -> Parser s b) -> BSL.ByteString -> ValueParser s a -> ObjectParserData s b
-someField modify key field = ObjectParserData $ do
+someField :: (Maybe a -> Parser s b) -> BSL.ByteString -> ValueParser s a -> ObjectParser s b
+someField modify key field = ObjectParser $ do
   ref <- liftST $ newSTRef Nothing
   let storeValue fallback k
         | k /= key = fallback k
@@ -167,21 +167,21 @@ someField modify key field = ObjectParserData $ do
 
   pure (storeValue, getValue)
 
-requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s a
+requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParser s a
 requiredField key = someField (maybe missing pure) key
   where missing = fail $ "Missing key: " ++ show key
 
-optionalField :: BSL.ByteString -> ValueParser s a -> ObjectParserData s (Maybe a)
+optionalField :: BSL.ByteString -> ValueParser s a -> ObjectParser s (Maybe a)
 optionalField = someField pure
 
-ignoreAnyField :: ObjectParserData s ()
-ignoreAnyField = ObjectParserData $ do
+ignoreAnyField :: ObjectParser s ()
+ignoreAnyField = ObjectParser $ do
   let storeValue _ _ = valueParser parseIgnore
       getValue = pure ()
   pure (storeValue, getValue)
 
-captureFields :: ValueParser s a -> ObjectParserData s [(BSL.ByteString, a)]
-captureFields single = ObjectParserData $ do
+captureFields :: ValueParser s a -> ObjectParser s [(BSL.ByteString, a)]
+captureFields single = ObjectParser $ do
   ref <- liftST $ newSTRef []
   let storeValue _ key = do
         !value <- valueParser single
