@@ -56,13 +56,18 @@ spec = do
       decode (parseString id) "\"asdf" `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
-    let nullArrayParser = parseArray (parseNull ()) (\(_, xs) -> reverse xs)
+    let nullArrayParser = parseArray $ arrayOf $ parseNull ()
     it "empty array" $
       decode nullArrayParser "[]" `shouldBe` Right []
     it "single value array" $
       decode nullArrayParser "[null]" `shouldBe` Right [()]
     it "longer array" $
       decode nullArrayParser "[null,null,null]" `shouldBe` Right [(),(),()]
+
+    it "[false,true]" $ do
+      let boolParser = parseFalse False <> parseTrue True
+          boolArrayParser = parseArray $ arrayOf boolParser
+      decode boolArrayParser "[false,true]" `shouldBe` Right [False,True]
 
   describe "object parsing" $ do
     describe "fail on unknown fields" $ do

@@ -3,6 +3,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Text.Json.Decode
   ( parseNull
   , parseFalse
@@ -13,6 +14,10 @@ module Text.Json.Decode
   , parseObject
   , parseIgnore
   , decode
+  , arrayElement
+  , arrayEnd
+  , arrayAny
+  , arrayOf
   , requiredField
   , optionalField
   , ignoreAnyField
@@ -58,10 +63,10 @@ parseString f = ValueParser $ \fallback -> \case
   '"' -> f <$> stringParser'
   c   -> fallback c
 
-parseArray :: ValueParser s b -> ((Int, [b]) -> a) -> ValueParser s a
-parseArray single f = ValueParser $ \fallback -> \case
+parseArray :: ArrayParser s a -> ValueParser s a
+parseArray single = ValueParser $ \fallback -> \case
   '[' -> skipWhile jsonWhitespace
-      *> (f <$> arrayParser single)
+      *> runArrayParser single
   c   -> fallback c
 
 parseObject :: ObjectParser s a -> ValueParser s a
@@ -103,7 +108,7 @@ parseIgnore = parseNull ()
            <> parseTrue ()
            <> parseNumber (const ())
            <> parseString (const ())
-           <> parseArray parseIgnore (const ())
+           <> parseArray ignoreArray
            <> parseObject ignoreAnyField
 
 valueParser :: ValueParser s a -> Parser s a
@@ -123,22 +128,58 @@ numberParser' c = do
 stringParser' :: Parser s BSL.ByteString
 stringParser' = takeWhileC (/= '"') <* char '"'
 
-arrayParser :: ValueParser s a -> Parser s (Int, [a])
-arrayParser single = start
-  where
-    start = anyChar >>= \case
-      ']' -> pure (0, [])
-      c   -> do
-        !x <- atArrayIndex 0 $ valueParser' c single
-        loop 1 [x]
+newtype ArrayParser s a = ArrayParser { runArrayParser :: Parser s a }
+newtype ArrayParser1 s a = ArrayParser1 { runArrayParser1 :: Int -> Parser s a }
 
-    loop !n !acc = anyChar >>= \case
-      ',' -> do
-        skipWhile jsonWhitespace
-        !x <- atArrayIndex n $ valueParser single
-        loop (n+1) (x:acc)
-      ']' -> pure (n, acc)
-      _   -> fail "Expected ',' or ']'"
+instance Functor (ArrayParser s) where
+  fmap f (ArrayParser p) = ArrayParser $ fmap f p
+
+class ArrayParserClass ap where
+  arrayEnd     :: a -> ap s a
+  arrayElement :: ValueParser s b -> (b -> ArrayParser1 s a) -> ap s a
+  arrayAny     :: a -> ValueParser s b -> (b -> ArrayParser1 s a) -> ap s a
+
+instance ArrayParserClass ArrayParser where
+  arrayEnd x = ArrayParser $ x <$ char ']'
+
+  arrayElement single next = ArrayParser $ do
+    !x <- atArrayIndex 0 $ valueParser single
+    runArrayParser1 (next x) 1
+
+  arrayAny end single next = ArrayParser $ anyChar >>= \case
+    ']' -> pure end
+    c   -> do
+      !x <- atArrayIndex 0 $ valueParser' c single
+      runArrayParser1 (next x) 1
+
+instance ArrayParserClass ArrayParser1 where
+  arrayEnd x = ArrayParser1 $ \(!_) -> x <$ char ']'
+
+  arrayElement single next = ArrayParser1 $ \(!n) -> do
+    char ','
+    skipWhile jsonWhitespace
+    !x <- atArrayIndex n $ valueParser single
+    runArrayParser1 (next x) (n + 1)
+
+  arrayAny end single next = ArrayParser1 $ \(!n) -> anyChar >>= \case
+    ',' -> do
+      skipWhile jsonWhitespace
+      !x <- atArrayIndex n $ valueParser single
+      runArrayParser1 (next x) (n + 1)
+    ']' -> pure end
+    _   -> fail "Expected ',' or ']'"
+
+ignoreArray :: ArrayParser s ()
+ignoreArray = go
+  where
+    go :: ArrayParserClass ap => ap s ()
+    go = arrayAny () parseIgnore $ \() -> go
+
+arrayOf :: forall s a. ValueParser s a -> ArrayParser s [a]
+arrayOf single = go []
+  where
+    go :: ArrayParserClass ap => [a] -> ap s [a]
+    go !xs = arrayAny (reverse xs) single $ \x -> go (x:xs)
 
 type FieldParser s = BSL.ByteString -> Parser s ()
 newtype ObjectParser s a = ObjectParser (Parser s (FieldParser s -> FieldParser s, Parser s a))
