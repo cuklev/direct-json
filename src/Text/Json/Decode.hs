@@ -14,6 +14,7 @@ module Text.Json.Decode
   , parseObject
   , parseIgnore
   , decode
+  , validateValue
   , arrayElement
   , arrayEnd
   , arrayAny
@@ -24,6 +25,7 @@ module Text.Json.Decode
   , captureFields
   ) where
 
+import Control.Applicative ((<|>))
 import Control.Monad.ST
 import Data.Bifunctor (first, second)
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -31,47 +33,53 @@ import Data.Char (isDigit, ord)
 import Data.STRef
 import Text.Json.Parser
 
-newtype ValueParser s a = ValueParser ((Char -> Parser s a) -> Char -> Parser s a)
+newtype ValueParser s a = ValueParser (Char -> Maybe (Parser s a))
 
 instance Semigroup (ValueParser s a) where
-  ValueParser p1 <> ValueParser p2 = ValueParser $ p1 . p2
+  ValueParser p1 <> ValueParser p2 = ValueParser $ \c -> p1 c <|> p2 c
 
-parseNull :: a -> ValueParser s a
-parseNull x = ValueParser $ \fallback -> \case
-  'n' -> x <$ string "ull"
-  c   -> fallback c
+validateValue :: (a -> Either String b) -> ValueParser s a -> ValueParser s b
+validateValue f (ValueParser vp) = ValueParser $ fmap (either fail pure . f =<<) . vp
 
-parseFalse :: a -> ValueParser s a
-parseFalse x = ValueParser $ \fallback -> \case
-  'f' -> x <$ string "alse"
-  c   -> fallback c
+instance Functor (ValueParser s) where
+  fmap f = validateValue $ Right . f
 
-parseTrue :: a -> ValueParser s a
-parseTrue x = ValueParser $ \fallback -> \case
-  't' -> x <$ string "rue"
-  c   -> fallback c
+parseNull :: ValueParser s ()
+parseNull = ValueParser $ \case
+  'n' -> Just $ string "ull"
+  _   -> Nothing
 
-parseNumber :: (Int -> a) -> ValueParser s a
-parseNumber f = ValueParser $ \fallback -> \case
-  '-' -> f . negate <$> (numberParser' =<< satisfy isDigit)
-  '0' -> pure $ f 0
-  c | isDigit c -> f <$> numberParser' c
-    | otherwise -> fallback c
+parseFalse :: ValueParser s ()
+parseFalse = ValueParser $ \case
+  'f' -> Just $ string "alse"
+  _   -> Nothing
 
-parseString :: (BSL.ByteString -> a) -> ValueParser s a
-parseString f = ValueParser $ \fallback -> \case
-  '"' -> f <$> stringParser'
-  c   -> fallback c
+parseTrue :: ValueParser s ()
+parseTrue = ValueParser $ \case
+  't' -> Just $ string "rue"
+  _   -> Nothing
+
+parseNumber :: ValueParser s Int
+parseNumber = ValueParser $ \case
+  '-' -> Just $ negate <$> (numberParser' =<< satisfy isDigit)
+  '0' -> Just $ pure 0
+  c | isDigit c -> Just $ numberParser' c
+    | otherwise -> Nothing
+
+parseString :: ValueParser s BSL.ByteString
+parseString = ValueParser $ \case
+  '"' -> Just stringParser'
+  _   -> Nothing
 
 parseArray :: ArrayParser s a -> ValueParser s a
-parseArray single = ValueParser $ \fallback -> \case
-  '[' -> skipWhile jsonWhitespace
-      *> runArrayParser single
-  c   -> fallback c
+parseArray single = ValueParser $ \case
+  '[' -> Just $ skipWhile jsonWhitespace
+             *> runArrayParser single
+  _   -> Nothing
 
 parseObject :: ObjectParser s a -> ValueParser s a
-parseObject (ObjectParser obj) = ValueParser $ \fallback -> \case
-  '{' -> do
+parseObject (ObjectParser obj) = ValueParser $ \case
+  '{' -> Just $ do
     skipWhile jsonWhitespace
     (makeStoreValue, getValue) <- obj
     let storeValue = makeStoreValue $ \key -> fail $ "Unexpected key: " ++ show key
@@ -99,15 +107,15 @@ parseObject (ObjectParser obj) = ValueParser $ \fallback -> \case
         loop
       _   -> fail "Expected '\"' or '}'"
 
-  c   -> fallback c
+  _   -> Nothing
 
 -- |Parses any valid json value and ignores it
 parseIgnore :: ValueParser s ()
-parseIgnore = parseNull ()
-           <> parseFalse ()
-           <> parseTrue ()
-           <> parseNumber (const ())
-           <> parseString (const ())
+parseIgnore = parseNull
+           <> parseFalse
+           <> parseTrue
+           <> (() <$ parseNumber)
+           <> (() <$ parseString)
            <> parseArray ignoreArray
            <> parseObject ignoreAnyField
 
@@ -117,8 +125,9 @@ valueParser parser = do
   valueParser' c parser
 
 valueParser' :: Char -> ValueParser s a -> Parser s a
-valueParser' c (ValueParser p) = p (\_ -> fail $ "Unexpected " ++ show c) c
-                              <* skipWhile jsonWhitespace
+valueParser' c (ValueParser vp) = case vp c of
+  Nothing -> fail $ "Unexpected " ++ show c
+  Just p  -> p <* skipWhile jsonWhitespace
 
 numberParser' :: Char -> Parser s Int
 numberParser' c = do

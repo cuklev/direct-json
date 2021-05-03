@@ -12,14 +12,14 @@ spec :: Spec
 spec = do
   describe "parsing null" $ do
     it "null constant" $
-      decode (parseNull ()) "null" `shouldBe` Right ()
+      decode parseNull "null" `shouldBe` Right ()
     it "wrong constant" $
-      decode (parseNull ()) "everything" `shouldSatisfy` isLeft
+      decode parseNull "everything" `shouldSatisfy` isLeft
     it "excess input" $
-      decode (parseNull ()) "nulla" `shouldSatisfy` isLeft
+      decode parseNull "nulla" `shouldSatisfy` isLeft
 
   describe "bool parsing" $ do
-    let boolParser = parseFalse False <> parseTrue True
+    let boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
     it "false" $
       decode boolParser "false" `shouldBe` Right False
     it "true" $
@@ -28,35 +28,34 @@ spec = do
       decode boolParser "null" `shouldSatisfy` isLeft
 
   describe "number parsing" $ do
-    let numberParser = parseNumber id
     it "0" $
-      decode numberParser "0" `shouldBe` Right 0
+      decode parseNumber "0" `shouldBe` Right 0
     it "4" $
-      decode numberParser "4" `shouldBe` Right 4
+      decode parseNumber "4" `shouldBe` Right 4
     it "1234" $
-      decode numberParser "1234" `shouldBe` Right 1234
+      decode parseNumber "1234" `shouldBe` Right 1234
     it "-4" $
-      decode numberParser "-4" `shouldBe` Right (-4)
+      decode parseNumber "-4" `shouldBe` Right (-4)
     it "1234" $
-      decode numberParser "-1234" `shouldBe` Right (-1234)
+      decode parseNumber "-1234" `shouldBe` Right (-1234)
 
     it "01 should be invalid" $
-      decode numberParser "01" `shouldSatisfy` isLeft
+      decode parseNumber "01" `shouldSatisfy` isLeft
 
   describe "string parsing" $ do
     it "empty string" $
-      decode (parseString id) "\"\"" `shouldBe` Right ""
+      decode parseString "\"\"" `shouldBe` Right ""
     it "some simple string" $
-      decode (parseString id) "\"asdf\"" `shouldBe` Right "asdf"
+      decode parseString "\"asdf\"" `shouldBe` Right "asdf"
     it "string with escaping" $
-      decode (parseString id) "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
+      decode parseString "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
     it "missing openning quote" $
-      decode (parseString id) "asdf\"" `shouldSatisfy` isLeft
+      decode parseString "asdf\"" `shouldSatisfy` isLeft
     it "missing closing quote" $
-      decode (parseString id) "\"asdf" `shouldSatisfy` isLeft
+      decode parseString "\"asdf" `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
-    let nullArrayParser = parseArray $ arrayOf $ parseNull ()
+    let nullArrayParser = parseArray $ arrayOf parseNull
     it "empty array" $
       decode nullArrayParser "[]" `shouldBe` Right []
     it "single value array" $
@@ -65,7 +64,7 @@ spec = do
       decode nullArrayParser "[null,null,null]" `shouldBe` Right [(),(),()]
 
     it "[false,true]" $ do
-      let boolParser = parseFalse False <> parseTrue True
+      let boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
           boolArrayParser = parseArray $ arrayOf boolParser
       decode boolArrayParser "[false,true]" `shouldBe` Right [False,True]
 
@@ -85,7 +84,7 @@ spec = do
         decode parser "{\"name\":\"pesho\",\"age\":42}" `shouldBe` Right ()
 
     describe "capture unknown fields" $ do
-      let parser = parseObject $ captureFields $ parseString id
+      let parser = parseObject $ captureFields parseString
       it "empty object" $
         decode parser "{}" `shouldBe` Right []
       it "several fields" $
@@ -93,8 +92,8 @@ spec = do
 
     describe "parsing required fields" $ do
       let parser = parseObject $ do
-            x <- requiredField "name" $ parseString id
-            y <- requiredField "age"  $ parseNumber id
+            x <- requiredField "name" parseString
+            y <- requiredField "age"  parseNumber
             pure (x, y)
       it "fields present in order" $
         decode parser "{\"name\":\"pesho\",\"age\":42}" `shouldBe` Right ("pesho", 42)
