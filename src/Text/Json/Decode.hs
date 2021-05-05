@@ -29,7 +29,7 @@ import Control.Applicative ((<|>))
 import Control.Monad.ST
 import Data.Bifunctor (first, second)
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import Data.Char (isDigit, ord)
+import Data.Char (isDigit, ord, chr)
 import Data.STRef
 import Text.Json.Parser
 
@@ -135,7 +135,46 @@ numberParser' c = do
   pure $ BSL.foldl' (\n d -> n * 10 + ord d - ord '0') (ord c - ord '0') rest
 
 stringParser' :: Parser s BSL.ByteString
-stringParser' = takeWhileC (/= '"') <* char '"'
+stringParser' = fmap BSL.concat parser
+  where
+    parser :: Parser s [BSL.ByteString]
+    parser = do
+      nonEscaped <- takeWhileC $ not . mustEscape
+      fmap (nonEscaped :) $ anyChar >>= \case
+        '"'  -> pure []
+        '\\' -> anyChar >>= \case
+          '"'  -> ("\"" :) <$> parser
+          '\\' -> ("\\" :) <$> parser
+          '/'  -> ("/"  :) <$> parser
+          'b'  -> ("\b" :) <$> parser
+          'f'  -> ("\f" :) <$> parser
+          'n'  -> ("\n" :) <$> parser
+          'r'  -> ("\r" :) <$> parser
+          't'  -> ("\t" :) <$> parser
+          'u'  -> do
+            d1 <- hexDigit
+            d2 <- hexDigit
+            d3 <- hexDigit
+            d4 <- hexDigit
+            let cp = ((d1 * 16 + d2) * 16 + d3) * 16 + d4
+                encoded
+                  | cp < 128  = [chr cp]
+                  | cp < 2048 = let (c1, c2) = cp `divMod` 64
+                                in map chr [c1 + 192, c2 + 128]
+                  | otherwise = let (c12, c3) = cp  `divMod` 64
+                                    (c1, c2)  = c12 `divMod` 64
+                                in map chr [c1 + 224, c2 + 128, c3 + 128]
+            (BSL.pack encoded :) <$> parser
+          c    -> fail $ "Unexpected " ++ show c
+        c    -> fail $ "Unexpected " ++ show c
+
+    mustEscape c = c == '"' || c == '\\' || ord c < 32
+
+    hexDigit = anyChar >>= \case
+      c | '0' <= c && c <= '9' -> pure $ ord c - ord '0'
+        | 'a' <= c && c <= 'f' -> pure $ ord c - ord 'a' + 10
+        | 'A' <= c && c <= 'F' -> pure $ ord c - ord 'A' + 10
+        | otherwise            -> fail $ show c ++ " is not a valid hex digit"
 
 newtype ArrayParser s a = ArrayParser { runArrayParser :: Parser s a }
 newtype ArrayParser1 s a = ArrayParser1 { runArrayParser1 :: Int -> Parser s a }
