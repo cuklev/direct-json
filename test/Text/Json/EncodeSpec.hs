@@ -33,8 +33,14 @@ spec = do
       encode (encodeString "@") `shouldBe` "\"@\""
     it "some string" $
       encode (encodeString "hello") `shouldBe` "\"hello\""
-    it "escaping" $
+    it "escaping \\\"" $
+      encode (encodeString "one\"two") `shouldBe` "\"one\\\"two\""
+    it "escaping \\\\" $
       encode (encodeString "one\\two") `shouldBe` "\"one\\\\two\""
+    it "escaping \\n" $
+      encode (encodeString "one\ntwo") `shouldBe` "\"one\\ntwo\""
+    it "escaping \\0" $
+      encode (encodeString "one\0two") `shouldBe` "\"one\\u0000two\""
 
   describe "arrays" $ do
     it "empty" $
