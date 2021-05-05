@@ -4,6 +4,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiWayIf #-}
 module Text.Json.Decode
   ( parseNull
   , parseFalse
@@ -26,6 +27,7 @@ module Text.Json.Decode
   ) where
 
 import Control.Applicative ((<|>))
+import Control.Monad (when)
 import Control.Monad.ST
 import Data.Bifunctor (first, second)
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -152,18 +154,26 @@ stringParser' = fmap BSL.concat parser
           'r'  -> ("\r" :) <$> parser
           't'  -> ("\t" :) <$> parser
           'u'  -> do
-            d1 <- hexDigit
-            d2 <- hexDigit
-            d3 <- hexDigit
-            d4 <- hexDigit
-            let cp = ((d1 * 16 + d2) * 16 + d3) * 16 + d4
-                encoded
-                  | cp < 128  = [chr cp]
-                  | cp < 2048 = let (c1, c2) = cp `divMod` 64
-                                in map chr [c1 + 192, c2 + 128]
-                  | otherwise = let (c12, c3) = cp  `divMod` 64
-                                    (c1, c2)  = c12 `divMod` 64
-                                in map chr [c1 + 224, c2 + 128, c3 + 128]
+            cp <- unicodeSymbol
+            encoded <-
+              if | cp < 128  -> pure [chr cp]
+                 | cp < 2048 -> do
+                   let (c1, c2) = cp `divMod` 64
+                   pure $ map chr [c1 + 192, c2 + 128]
+                 | 0xD800 <= cp && cp < 0xDC00 -> do
+                   string "\\u"
+                   cp2 <- unicodeSymbol
+                   when (cp < 0xDC00 || cp > 0xDFFF)
+                     $ fail "Expecting low surrogate"
+                   let realCp = (cp `mod` 1024) * 1024 + cp2 `mod` 1024
+                       (c123, c4) = realCp `divMod` 64
+                       (c12, c3)  = c123 `divMod` 64
+                       (c1, c2)   = c12 `divMod` 64
+                   pure $ map chr [c1 + 240, c2 + 128, c3 + 128, c4 + 128]
+                 | otherwise -> do
+                   let (c12, c3) = cp  `divMod` 64
+                       (c1, c2)  = c12 `divMod` 64
+                   pure $ map chr [c1 + 224, c2 + 128, c3 + 128]
             (BSL.pack encoded :) <$> parser
           c    -> fail $ "Unexpected " ++ show c
         c    -> fail $ "Unexpected " ++ show c
@@ -175,6 +185,13 @@ stringParser' = fmap BSL.concat parser
         | 'a' <= c && c <= 'f' -> pure $ ord c - ord 'a' + 10
         | 'A' <= c && c <= 'F' -> pure $ ord c - ord 'A' + 10
         | otherwise            -> fail $ show c ++ " is not a valid hex digit"
+
+    unicodeSymbol = do
+      d1 <- hexDigit
+      d2 <- hexDigit
+      d3 <- hexDigit
+      d4 <- hexDigit
+      pure $ ((d1 * 16 + d2) * 16 + d3) * 16 + d4
 
 newtype ArrayParser s a = ArrayParser { runArrayParser :: Parser s a }
 newtype ArrayParser1 s a = ArrayParser1 { runArrayParser1 :: Int -> Parser s a }
