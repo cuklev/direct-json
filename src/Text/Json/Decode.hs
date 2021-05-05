@@ -32,6 +32,7 @@ import Control.Monad.ST
 import Data.Bifunctor (first, second)
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (isDigit, ord, chr)
+import Data.Scientific (Scientific, scientific)
 import Data.STRef
 import Text.Json.Parser
 
@@ -61,12 +62,40 @@ parseTrue = ValueParser $ \case
   't' -> Just $ string "rue"
   _   -> Nothing
 
-parseNumber :: ValueParser s Int
+parseNumber :: ValueParser s Scientific
 parseNumber = ValueParser $ \case
-  '-' -> Just $ negate <$> (numberParser' =<< satisfy isDigit)
-  '0' -> Just $ pure 0
-  c | isDigit c -> Just $ numberParser' c
+  '-' -> Just $ uncurry scientific . first negate <$> (number =<< satisfy isDigit)
+  c | isDigit c -> Just $ uncurry scientific <$> number c
     | otherwise -> Nothing
+  where
+    number :: Char -> Parser s (Integer, Int)
+    number '0' = pure (0, 0)
+    number c = do
+      n1 <- addDigits (toInteger $ ord c - ord '0') <$> takeWhileC isDigit
+      (n2, e1) <- takeIf (== '.') >>= \case
+        Nothing -> pure (n1, 0)
+        Just _  -> do
+          frac <- takeWhileC1 isDigit
+          pure (addDigits n1 frac, negate $ fromIntegral $ BSL.length frac)
+      takeIf (\e -> e == 'e' || e == 'E') >>= \case
+        Nothing -> pure (n2, e1)
+        Just _  -> anyChar >>= \case
+          '+' -> do
+            e2 <- addDigits 0 <$> takeWhileC1 isDigit
+            pure (n2, e1 + e2)
+          '-' -> do
+            e2 <- addDigits 0 <$> takeWhileC1 isDigit
+            pure (n2, e1 - e2)
+          s | isDigit c -> do
+            e2 <- addDigits (ord s - ord '0') <$> takeWhileC isDigit
+            pure (n2, e1 + e2)
+            | otherwise -> fail $ "Unexpected " ++ show s
+
+    addDigits :: Integral a => a -> BSL.ByteString -> a
+    addDigits = BSL.foldl' addDigit
+
+    addDigit :: Integral a => a -> Char -> a
+    addDigit n d = n * 10 + fromIntegral (ord d - ord '0')
 
 parseString :: ValueParser s BSL.ByteString
 parseString = ValueParser $ \case
@@ -130,11 +159,6 @@ valueParser' :: Char -> ValueParser s a -> Parser s a
 valueParser' c (ValueParser vp) = case vp c of
   Nothing -> fail $ "Unexpected " ++ show c
   Just p  -> p <* skipWhile jsonWhitespace
-
-numberParser' :: Char -> Parser s Int
-numberParser' c = do
-  rest <- takeWhileC isDigit
-  pure $ BSL.foldl' (\n d -> n * 10 + ord d - ord '0') (ord c - ord '0') rest
 
 stringParser' :: Parser s BSL.ByteString
 stringParser' = fmap BSL.concat parser

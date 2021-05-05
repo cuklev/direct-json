@@ -20,6 +20,7 @@ library:
   source-dirs: src
   dependencies:
   - bytestring
+  - scientific
 
 tests:
   direct-json-test:

@@ -42,6 +42,22 @@ spec = do
     it "01 should be invalid" $
       decode parseNumber "01" `shouldSatisfy` isLeft
 
+    it "4.2" $
+      decode parseNumber "4.2" `shouldBe` Right 4.2
+    it "4e1" $
+      decode parseNumber "4e1" `shouldBe` Right 40
+    it "4e+1" $
+      decode parseNumber "4e+1" `shouldBe` Right 40
+    it "4e-1" $
+      decode parseNumber "4e-1" `shouldBe` Right 0.4
+    it "1.23e-5" $
+      decode parseNumber "1.23e-5" `shouldBe` Right 1.23e-5
+    it "-1.23e-5" $
+      decode parseNumber "-1.23e-5" `shouldBe` Right (-1.23e-5)
+
+    it "-01 should be invalid" $
+      decode parseNumber "-01" `shouldSatisfy` isLeft
+
   describe "string parsing" $ do
     it "empty string" $
       decode parseString "\"\"" `shouldBe` Right ""
