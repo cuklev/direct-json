@@ -21,6 +21,7 @@ library:
   dependencies:
   - bytestring
   - scientific
+  - binary
 
 tests:
   direct-json-test:
@@ -33,3 +34,4 @@ tests:
     dependencies:
     - direct-json
     - hspec
+    - scientific

@@ -3,6 +3,7 @@ module Text.Json.EncodeSpec
   ( spec
   ) where
 
+import Data.Scientific (normalize)
 import Test.Hspec
 import Text.Json.Encode
 
@@ -25,6 +26,14 @@ spec = do
       encode (encodeNumber 7324) `shouldBe` "7324"
     it "-13" $
       encode (encodeNumber (-13)) `shouldBe` "-13"
+    it "4.2" $
+      encode (encodeNumber 4.2) `shouldBe` "4.2"
+    it "4.2e1" $
+      encode (encodeNumber 4.2e1) `shouldBe` "42"
+    it "5e100" $
+      encode (encodeNumber $ normalize 5e100) `shouldBe` "5.0e100"
+    it "5e-100" $
+      encode (encodeNumber 5e-100) `shouldBe` "5.0e-100"
 
   describe "strings" $ do
     it "empty string" $

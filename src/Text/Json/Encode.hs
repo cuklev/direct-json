@@ -10,9 +10,12 @@ module Text.Json.Encode
   , encode
   ) where
 
+import Data.Binary.Builder (toLazyByteString)
+import Data.ByteString.Builder.Scientific (scientificBuilder)
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (chr, ord)
+import Data.Scientific (Scientific, coefficient, base10Exponent)
 
 newtype ValueEncoder = ValueEncoder { encoderChunks :: [BS.ByteString] }
 
@@ -25,8 +28,11 @@ encodeFalse = ValueEncoder ["false"]
 encodeTrue :: ValueEncoder
 encodeTrue = ValueEncoder ["true"]
 
-encodeNumber :: Int -> ValueEncoder
-encodeNumber = ValueEncoder . pure . BS.pack . show
+encodeNumber :: Scientific -> ValueEncoder
+encodeNumber s
+  | e < 0 || e > 6 = ValueEncoder [BSL.toStrict $ toLazyByteString $ scientificBuilder s]
+  | otherwise      = ValueEncoder [BS.pack $ show $ coefficient s * 10 ^ e]
+  where e = base10Exponent s
 
 encodeString :: BSL.ByteString -> ValueEncoder
 encodeString str = ValueEncoder $ "\"" : strEncode str ++ ["\""]
