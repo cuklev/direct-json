@@ -121,4 +121,4 @@ spec = do
         decode parser "{\"age\":42,\"deleted\":false,\"name\":\"pesho\"}" `shouldSatisfy` isLeft
 
   it "spaces around tokens" $
-    decode parseIgnore " [ false , true , null , 42 , { \"name\" : \"pesho\" } ] " `shouldBe` Right ()
+    decode parseIgnore " [ false , true , null , 42 , { \"name\" : \"pesho\" }, [ ] ] " `shouldBe` Right ()

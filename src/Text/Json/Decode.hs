@@ -16,9 +16,8 @@ module Text.Json.Decode
   , parseIgnore
   , decode
   , validateValue
-  , arrayElement
-  , arrayEnd
-  , arrayAny
+  , requiredElement
+  , optionalElement
   , arrayOf
   , requiredField
   , optionalField
@@ -102,10 +101,11 @@ parseString = ValueParser $ \case
   '"' -> Just stringParser'
   _   -> Nothing
 
-parseArray :: ArrayParser s a -> ValueParser s a
-parseArray single = ValueParser $ \case
-  '[' -> Just $ skipWhile jsonWhitespace
-             *> runArrayParser single
+parseArray :: ArrayParser s a a -> ValueParser s a
+parseArray p = ValueParser $ \case
+  '[' -> Just $ do
+    skipWhile jsonWhitespace
+    runArrayParser p (\x _ -> x <$ char ']') 0
   _   -> Nothing
 
 parseObject :: ObjectParser s a -> ValueParser s a
@@ -217,58 +217,48 @@ stringParser' = fmap BSL.concat parser
       d4 <- hexDigit
       pure $ ((d1 * 16 + d2) * 16 + d3) * 16 + d4
 
-newtype ArrayParser s a = ArrayParser { runArrayParser :: Parser s a }
-newtype ArrayParser1 s a = ArrayParser1 { runArrayParser1 :: Int -> Parser s a }
+newtype ArrayParser s r a = ArrayParser { runArrayParser :: (a -> Int -> Parser s r) -> Int -> Parser s r }
 
-instance Functor (ArrayParser s) where
-  fmap f (ArrayParser p) = ArrayParser $ fmap f p
+instance Functor (ArrayParser s r) where
+  fmap f (ArrayParser p) = ArrayParser $ \cont -> p $ cont . f
 
-class ArrayParserClass ap where
-  arrayEnd     :: a -> ap s a
-  arrayElement :: ValueParser s b -> (b -> ArrayParser1 s a) -> ap s a
-  arrayAny     :: a -> ValueParser s b -> (b -> ArrayParser1 s a) -> ap s a
+instance Applicative (ArrayParser s r) where
+  pure x = ArrayParser ($ x)
+  ArrayParser mf <*> ArrayParser mx = ArrayParser $ \cont ->
+    mf $ \cf -> mx $ cont . cf
 
-instance ArrayParserClass ArrayParser where
-  arrayEnd x = ArrayParser $ x <$ char ']'
+instance Monad (ArrayParser r a) where
+  ArrayParser mx >>= f = ArrayParser $ \cont ->
+    mx $ \cx -> runArrayParser (f cx) cont
 
-  arrayElement single next = ArrayParser $ do
-    !x <- atArrayIndex 0 $ valueParser single
-    runArrayParser1 (next x) 1
-
-  arrayAny end single next = ArrayParser $ anyChar >>= \case
-    ']' -> pure end
-    c   -> do
+someElement :: Parser s r -> ValueParser s a -> ArrayParser s r a
+someElement end single = ArrayParser $ \cont n ->
+  anyChar >>= \case
+    ']' -> end
+    c | n == 0 -> do
       !x <- atArrayIndex 0 $ valueParser' c single
-      runArrayParser1 (next x) 1
-
-instance ArrayParserClass ArrayParser1 where
-  arrayEnd x = ArrayParser1 $ \(!_) -> x <$ char ']'
-
-  arrayElement single next = ArrayParser1 $ \(!n) -> do
-    char ','
-    skipWhile jsonWhitespace
-    !x <- atArrayIndex n $ valueParser single
-    runArrayParser1 (next x) (n + 1)
-
-  arrayAny end single next = ArrayParser1 $ \(!n) -> anyChar >>= \case
+      cont x 1
     ',' -> do
       skipWhile jsonWhitespace
       !x <- atArrayIndex n $ valueParser single
-      runArrayParser1 (next x) (n + 1)
-    ']' -> pure end
+      cont x $ n + 1
     _   -> fail "Expected ',' or ']'"
+{-# INLINE someElement #-}
 
-ignoreArray :: ArrayParser s ()
-ignoreArray = go
-  where
-    go :: ArrayParserClass ap => ap s ()
-    go = arrayAny () parseIgnore $ \() -> go
+requiredElement :: ValueParser s a -> ArrayParser s r a
+requiredElement = someElement $ fail "Expected required element"
+{-# INLINE requiredElement #-}
 
-arrayOf :: forall s a. ValueParser s a -> ArrayParser s [a]
+optionalElement :: r -> ValueParser s a -> ArrayParser s r a
+optionalElement = someElement . pure
+{-# INLINE optionalElement #-}
+
+ignoreArray :: ArrayParser s () ()
+ignoreArray = optionalElement () parseIgnore *> ignoreArray
+
+arrayOf :: ValueParser s a -> ArrayParser s [a] [a]
 arrayOf single = go []
-  where
-    go :: ArrayParserClass ap => [a] -> ap s [a]
-    go !xs = arrayAny (reverse xs) single $ \x -> go (x:xs)
+  where go xs = optionalElement (reverse xs) single >>= \x -> go (x:xs)
 
 type FieldParser s = BSL.ByteString -> Parser s ()
 newtype ObjectParser s a = ObjectParser (Parser s (FieldParser s -> FieldParser s, Parser s a))
