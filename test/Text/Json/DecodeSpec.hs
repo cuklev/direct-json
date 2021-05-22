@@ -71,18 +71,33 @@ spec = do
       decode parseString "\"asdf" `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
-    let nullArrayParser = parseArray $ arrayOf parseNull
-    it "empty array" $
-      decode nullArrayParser "[]" `shouldBe` Right []
-    it "single value array" $
-      decode nullArrayParser "[null]" `shouldBe` Right [()]
-    it "longer array" $
-      decode nullArrayParser "[null,null,null]" `shouldBe` Right [(),(),()]
+    describe "requiredElement" $ do
+      let parser = parseArray $ requiredElement parseNull
+      it "empty array" $
+        decode parser "[]" `shouldSatisfy` isLeft
+      it "single valuue array" $
+        decode parser "[ null ]" `shouldBe` Right ()
 
-    it "[false,true]" $ do
-      let boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
-          boolArrayParser = parseArray $ arrayOf boolParser
-      decode boolArrayParser "[false,true]" `shouldBe` Right [False,True]
+    describe "optionalElement" $ do
+      let parser = parseArray $ optionalElement Nothing $ fmap Just parseNull
+      it "empty array" $
+        decode parser "[]" `shouldBe` Right Nothing
+      it "single valuue array" $
+        decode parser "[ null ]" `shouldBe` Right (Just ())
+
+    describe "arrayOf" $ do
+      let nullArrayParser = parseArray $ arrayOf parseNull
+      it "empty array" $
+        decode nullArrayParser "[]" `shouldBe` Right []
+      it "single value array" $
+        decode nullArrayParser "[null]" `shouldBe` Right [()]
+      it "longer array" $
+        decode nullArrayParser "[null,null,null]" `shouldBe` Right [(),(),()]
+
+      it "[false,true]" $ do
+        let boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
+            boolArrayParser = parseArray $ arrayOf boolParser
+        decode boolArrayParser "[false,true]" `shouldBe` Right [False,True]
 
   describe "object parsing" $ do
     describe "fail on unknown fields" $ do
