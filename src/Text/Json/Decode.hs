@@ -296,7 +296,7 @@ optionalField = someField pure
 
 ignoreAnyField :: ObjectParser s ()
 ignoreAnyField = ObjectParser $ do
-  let storeValue _ _ = valueParser parseIgnore
+  let storeValue _ key = atObjectKey key $ valueParser parseIgnore
       getValue = pure ()
   pure (storeValue, getValue)
 
@@ -304,7 +304,7 @@ captureFields :: ValueParser s a -> ObjectParser s [(BSL.ByteString, a)]
 captureFields single = ObjectParser $ do
   ref <- liftST $ newSTRef []
   let storeValue _ key = do
-        !value <- valueParser single
+        !value <- atObjectKey key $ valueParser single
         liftST $ modifySTRef' ref ((key, value) :)
       getValue = liftST (readSTRef ref)
   pure (storeValue, getValue)
