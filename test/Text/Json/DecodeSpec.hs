@@ -115,7 +115,7 @@ spec = do
         decode parser "{\"name\":\"pesho\",\"age\":42}" `shouldBe` Right ()
 
     describe "capture unknown fields" $ do
-      let parser = parseObject $ captureFields parseString
+      let parser = parseObject $ captureAllFields parseString
       it "empty object" $
         decode parser "{}" `shouldBe` Right []
       it "several fields" $

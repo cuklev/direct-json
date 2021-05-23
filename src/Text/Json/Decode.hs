@@ -22,7 +22,14 @@ module Text.Json.Decode
   , requiredField
   , optionalField
   , ignoreAnyField
-  , captureFields
+  , captureAllFields
+  , JsonDecode (..)
+  , decodeC
+  , requiredElementC
+  , optionalElementC
+  , requiredFieldC
+  , optionalFieldC
+  , captureAllFieldsC
   ) where
 
 import Control.Applicative ((<|>))
@@ -300,8 +307,8 @@ ignoreAnyField = ObjectParser $ do
       getValue = pure ()
   pure (storeValue, getValue)
 
-captureFields :: ValueParser s a -> ObjectParser s [(BSL.ByteString, a)]
-captureFields single = ObjectParser $ do
+captureAllFields :: ValueParser s a -> ObjectParser s [(BSL.ByteString, a)]
+captureAllFields single = ObjectParser $ do
   ref <- liftST $ newSTRef []
   let storeValue _ key = do
         !value <- atObjectKey key $ valueParser single
@@ -314,3 +321,24 @@ decode parser input = first showError $ runST $ runParser (valueParser parser <*
 
 jsonWhitespace :: Char -> Bool
 jsonWhitespace c = c == ' ' || c == '\n' || c == '\r' || c == '\t'
+
+class JsonDecode a where
+  jsonDecode :: ValueParser s a
+
+requiredElementC :: JsonDecode a => ArrayParser s r a
+requiredElementC = requiredElement jsonDecode
+
+optionalElementC :: JsonDecode a => r -> ArrayParser s r a
+optionalElementC end = optionalElement end jsonDecode
+
+requiredFieldC :: JsonDecode a => BSL.ByteString -> ObjectParser s a
+requiredFieldC key = requiredField key jsonDecode
+
+optionalFieldC :: JsonDecode a => BSL.ByteString -> ObjectParser s (Maybe a)
+optionalFieldC key = optionalField key jsonDecode
+
+captureAllFieldsC :: JsonDecode a => ObjectParser s [(BSL.ByteString, a)]
+captureAllFieldsC = captureAllFields jsonDecode
+
+decodeC :: JsonDecode a => BSL.ByteString -> Either String a
+decodeC = decode jsonDecode

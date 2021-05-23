@@ -8,6 +8,8 @@ module Text.Json.Encode
   , encodeArray
   , encodeObject
   , encode
+  , JsonEncode (..)
+  , encodeC
   ) where
 
 import Data.Binary.Builder (toLazyByteString)
@@ -77,3 +79,9 @@ encodeObject (x:xs) = ValueEncoder
 
 encode :: ValueEncoder -> BSL.ByteString
 encode = BSL.fromChunks . encoderChunks
+
+class JsonEncode a where
+  jsonEncode :: a -> ValueEncoder
+
+encodeC :: JsonEncode a => a -> BSL.ByteString
+encodeC = encode . jsonEncode
