@@ -2,15 +2,19 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# OPTIONS -Wno-error=unused-top-binds #-}
+{-# OPTIONS -Wno-error=orphans #-}
 import System.Environment (getArgs, getExecutablePath)
 import System.Process.Typed
+import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Control.Monad (unless)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Vector as V
--- import qualified Data.Text as T
+import qualified Data.Text as T
+import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 
 import Data.Aeson (eitherDecode, FromJSON (..), withObject, (.:))
@@ -29,14 +33,26 @@ runAll = do
 
   let time :: String -> IO ()
       time t = do
-        putStr $ "Testing " ++ t ++ ": "
         begin <- getCurrentTime
         runProcess_ $ proc exe ["run", t]
         end   <- getCurrentTime
-        print $ end `diffUTCTime` begin
+        putStrLn $ "Time: " ++ show (end `diffUTCTime` begin)
 
+      mem :: String -> IO ()
+      mem t = do
+        output <- readProcessStderr_ $ proc exe ["run", t, "+RTS", "-s"]
+        T.putStrLn $ fromMaybe "Can not parse memory usage" $ do
+          [p1, _] <- Just $ T.splitOn "total memory in use" $ T.decodeUtf8 $ BSL.toStrict output
+          [w2, w1] <- Just $ take 2 $ reverse $ T.words p1
+          Just $ "Memory: " <> w1 <> " " <> w2
+
+  putStrLn "Testing direct-json:"
   time "direct"
+  mem "direct"
+
+  putStrLn "Testing aeson:"
   time "aeson"
+  mem "aeson"
 
 runDirect :: IO ()
 runDirect = do
@@ -86,24 +102,5 @@ instance FromJSON BigObject where
       <$> o .: "label"
       <*> o .: "data"
 
-type Input = V.Vector (V.Vector BigObject)
-
 instance FromJSON BS.ByteString where
   parseJSON = fmap T.encodeUtf8 . parseJSON
-
-
-directParser = parser
-  where
-    boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
-    textParser = fmap BSL.toStrict parseString
-    smallObject = parseObject $ do
-      smallName <- requiredField "name" textParser
-      smallAge  <- floor <$> requiredField "age" parseNumber
-      smallDeleted <- requiredField "deleted" boolParser
-      pure SmallObject{..}
-    bigObject = parseObject $ do
-      bigLabel <- requiredField "label" textParser
-      bigData  <- requiredField "data" $ V.fromList <$> parseArray (arrayOf smallObject)
-      pure BigObject{..}
-    bigs = V.fromList <$> parseArray (arrayOf bigObject)
-    parser = V.fromList <$> parseArray (arrayOf bigs)
