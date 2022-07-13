@@ -6,6 +6,7 @@
 {-# OPTIONS -Wno-error=orphans #-}
 import System.Environment (getArgs, getExecutablePath)
 import System.Process.Typed
+import Data.Foldable (for_)
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Control.Monad (unless)
@@ -18,12 +19,12 @@ import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 
 import Data.Aeson (eitherDecode, FromJSON (..), withObject, (.:))
-import Text.Json.Decode (decode, parseIgnore, parseFalse, parseTrue, parseString, parseObject, requiredField, parseNumber, parseArray, arrayOf)
+import Text.Json.Decode (decode, parseIgnore)
 
 main :: IO ()
 main = getArgs >>= \case
-  ["run", "direct"] -> runDirect
-  ["run", "aeson"]  -> runAeson
+  ["run", "direct", n] -> runDirect $ testData $ read n
+  ["run", "aeson",  n] -> runAeson  $ testData $ read n
   []                -> runAll
   _                 -> fail "Invalid arguments"
 
@@ -31,50 +32,56 @@ runAll :: IO ()
 runAll = do
   exe <- getExecutablePath
 
-  let time :: String -> IO ()
-      time t = do
+  let time :: String -> Int -> IO T.Text
+      time t n = do
         begin <- getCurrentTime
-        runProcess_ $ proc exe ["run", t]
+        runProcess_ $ proc exe ["run", t, show n]
         end   <- getCurrentTime
-        putStrLn $ "Time: " ++ show (end `diffUTCTime` begin)
+        pure $ T.pack $ show $ end `diffUTCTime` begin
 
-      mem :: String -> IO ()
-      mem t = do
-        output <- readProcessStderr_ $ proc exe ["run", t, "+RTS", "-s"]
-        T.putStrLn $ fromMaybe "Can not parse memory usage" $ do
+      mem :: String -> Int -> IO T.Text
+      mem t n = do
+        output <- readProcessStderr_ $ proc exe ["run", t, show n, "+RTS", "-s"]
+        pure $ fromMaybe "Can not parse memory usage" $ do
           [p1, _] <- Just $ T.splitOn "total memory in use" $ T.decodeUtf8 $ BSL.toStrict output
           [w2, w1] <- Just $ take 2 $ reverse $ T.words p1
-          Just $ "Memory: " <> w1 <> " " <> w2
+          Just $ w1 <> w2
 
-  putStrLn "Testing direct-json:"
-  time "direct"
-  mem "direct"
+  let libs = ["direct", "aeson"]
+  putStrLn $ "Size"
+          ++ concatMap (\lib -> ',' : lib ++ " (time)") libs
+          ++ concatMap (\lib -> ',' : lib ++ " (mem)") libs
 
-  putStrLn "Testing aeson:"
-  time "aeson"
-  mem "aeson"
+  for_ [0, 1, 5, 10, 20, 40, 60, 80, 100] $ \size -> do
+    putStr $ show size
+    for_ [time, mem] $ \bench ->
+      for_ libs $ \lib -> do
+        result <- bench lib size
+        T.putStr $ "," <> result
+    T.putStrLn ""
 
-runDirect :: IO ()
-runDirect = do
+runDirect :: (BSL.ByteString, [[BigObject]]) -> IO ()
+runDirect (inputStr, _) = do
   either fail pure $ decode parseIgnore inputStr
 
-runAeson :: IO ()
-runAeson = do
+runAeson :: (BSL.ByteString, [[BigObject]]) -> IO ()
+runAeson (inputStr, inputObj) = do
   result <- either fail pure $ eitherDecode inputStr
   unless (result == inputObj) $ fail "Decoding error"
 
-inputStr :: BSL.ByteString
-inputStr = array 100 $ array 100 bigObject
+testData :: Int -> (BSL.ByteString, [[BigObject]])
+testData size = (str, obj)
   where
-    bigObject = "{\"data\":" <> array 100 smallObject <> ",\"label\":\"ivan\"}"
-    smallObject = "{\"name\":\"pesho\",\"age\":42,\"deleted\":true}"
-    array n inner = "[" <> BSL.intercalate "," (replicate n inner) <> "]"
+    str = array size $ array size bigObject
+      where
+        bigObject = "{\"data\":" <> array size smallObject <> ",\"label\":\"ivan\"}"
+        smallObject = "{\"name\":\"pesho\",\"age\":42,\"deleted\":true}"
+        array n inner = "[" <> BSL.intercalate "," (replicate n inner) <> "]"
 
-inputObj :: [[BigObject]]
-inputObj = replicate 100 $ replicate 100 bigObject
-  where
-    bigObject = BigObject "ivan" $ V.replicate 100 smallObject
-    smallObject = SmallObject "pesho" 42 True
+    obj = replicate size $ replicate size bigObject
+      where
+        bigObject = BigObject "ivan" $ V.replicate size smallObject
+        smallObject = SmallObject "pesho" 42 True
 
 data SmallObject = SmallObject
   { smallName    :: {-# UNPACK #-} !BS.ByteString
