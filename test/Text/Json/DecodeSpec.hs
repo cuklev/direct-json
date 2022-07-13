@@ -55,6 +55,11 @@ spec = do
     it "-1.23e-5" $
       decode parseNumber "-1.23e-5" `shouldBe` Right (-1.23e-5)
 
+    it "floating number between 0 and 1" $
+      decode parseNumber "0.3" `shouldBe` Right 0.3
+    it "floating number between 0 and -1" $
+      decode parseNumber "-0.3" `shouldBe` Right (-0.3)
+
     it "-01 should be invalid" $
       decode parseNumber "-01" `shouldSatisfy` isLeft
 

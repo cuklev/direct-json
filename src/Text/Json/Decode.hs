@@ -75,9 +75,10 @@ parseNumber = ValueParser $ \case
     | otherwise -> Nothing
   where
     number :: Char -> Parser s (Integer, Int)
-    number '0' = pure (0, 0)
     number c = do
-      n1 <- addDigits (toInteger $ ord c - ord '0') <$> takeWhileC isDigit
+      n1 <- if c == '0'
+        then pure 0
+        else addDigits (toInteger $ ord c - ord '0') <$> takeWhileC isDigit
       (n2, e1) <- takeIf (== '.') >>= \case
         Nothing -> pure (n1, 0)
         Just _  -> do
