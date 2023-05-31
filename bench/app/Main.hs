@@ -2,7 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ApplicativeDo #-}
-{-# OPTIONS -Wno-error=unused-top-binds #-}
 {-# OPTIONS -Wno-error=orphans #-}
 import System.Environment (getArgs, getExecutablePath)
 import System.Process.Typed
@@ -19,14 +18,15 @@ import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 
 import Data.Aeson (eitherDecode, FromJSON (..), withObject, (.:))
-import Text.Json.Decode (decode, parseIgnore)
+import Text.Json.Decode (decode, parseIgnore, parseFalse, parseTrue, parseString, parseObject, requiredField, parseArray, arrayOf, parseNumber)
 
 main :: IO ()
 main = getArgs >>= \case
-  ["run", "direct", n] -> runDirect $ testData $ read n
-  ["run", "aeson",  n] -> runAeson  $ testData $ read n
-  []                -> runAll
-  _                 -> fail "Invalid arguments"
+  ["run", "direct-ignore", n] -> runDirectIgnore $ testData $ read n
+  ["run", "direct", n]        -> runDirect       $ testData $ read n
+  ["run", "aeson",  n]        -> runAeson        $ testData $ read n
+  [] -> runAll
+  _  -> fail "Invalid arguments"
 
 runAll :: IO ()
 runAll = do
@@ -47,7 +47,7 @@ runAll = do
           [w2, w1] <- Just $ take 2 $ reverse $ T.words p1
           Just $ w1 <> w2
 
-  let libs = ["direct", "aeson"]
+  let libs = ["direct-ignore", "direct", "aeson"]
   putStrLn $ "Size"
           ++ concatMap (\lib -> ',' : lib ++ " (time)") libs
           ++ concatMap (\lib -> ',' : lib ++ " (mem)") libs
@@ -60,9 +60,26 @@ runAll = do
         T.putStr $ "," <> result
     T.putStrLn ""
 
+runDirectIgnore :: (BSL.ByteString, [[BigObject]]) -> IO ()
+runDirectIgnore (inputStr, _) = either fail pure $ decode parseIgnore inputStr
+
 runDirect :: (BSL.ByteString, [[BigObject]]) -> IO ()
-runDirect (inputStr, _) = do
-  either fail pure $ decode parseIgnore inputStr
+runDirect (inputStr, inputObj) = do
+  let boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
+      textParser = fmap BSL.toStrict parseString
+      smallObject = parseObject $ do
+        smallName <- requiredField "name" textParser
+        smallAge  <- floor <$> requiredField "age" parseNumber
+        smallDeleted <- requiredField "deleted" boolParser
+        pure SmallObject{..}
+      bigObject = parseObject $ do
+        bigLabel <- requiredField "label" textParser
+        bigData  <- requiredField "data" $ V.fromList <$> parseArray (arrayOf smallObject)
+        pure BigObject{..}
+      bigs = parseArray $ arrayOf bigObject
+      parser = parseArray $ arrayOf bigs
+  result <- either fail pure $ decode parser inputStr
+  unless (result == inputObj) $ fail "Decoding error"
 
 runAeson :: (BSL.ByteString, [[BigObject]]) -> IO ()
 runAeson (inputStr, inputObj) = do
