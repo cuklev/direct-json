@@ -195,9 +195,9 @@ stringParser' = fmap BSL.concat parser
                  | 0xD800 <= cp && cp < 0xDC00 -> do
                    string "\\u"
                    cp2 <- unicodeSymbol
-                   when (cp < 0xDC00 || cp > 0xDFFF)
+                   when (cp2 < 0xDC00 || cp2 > 0xDFFF)
                      $ fail "Expecting low surrogate"
-                   let realCp = (cp `mod` 1024) * 1024 + cp2 `mod` 1024
+                   let realCp = 0x10000 + (cp `mod` 1024) * 1024 + cp2 `mod` 1024
                        (c123, c4) = realCp `divMod` 64
                        (c12, c3)  = c123 `divMod` 64
                        (c1, c2)   = c12 `divMod` 64
