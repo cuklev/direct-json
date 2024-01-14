@@ -68,12 +68,28 @@ spec = do
       decode parseString "\"\"" `shouldBe` Right ""
     it "some simple string" $
       decode parseString "\"asdf\"" `shouldBe` Right "asdf"
-    it "string with escaping" $
-      decode parseString "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
     it "missing openning quote" $
       decode parseString "asdf\"" `shouldSatisfy` isLeft
     it "missing closing quote" $
       decode parseString "\"asdf" `shouldSatisfy` isLeft
+
+    describe "escaped symbols" $ do
+      it "string with \\\"" $
+        decode parseString "\"asdf\\\"asdf\"" `shouldBe` Right "asdf\"asdf"
+      it "string with \\\\" $
+        decode parseString "\"asdf\\\\asdf\"" `shouldBe` Right "asdf\\asdf"
+      it "string with \\/" $
+        decode parseString "\"asdf\\/asdf\"" `shouldBe` Right "asdf/asdf"
+      it "string with \\b" $
+        decode parseString "\"asdf\\basdf\"" `shouldBe` Right "asdf\basdf"
+      it "string with \\f" $
+        decode parseString "\"asdf\\fasdf\"" `shouldBe` Right "asdf\fasdf"
+      it "string with \\n" $
+        decode parseString "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
+      it "string with \\r" $
+        decode parseString "\"asdf\\rasdf\"" `shouldBe` Right "asdf\rasdf"
+      it "string with \\t" $
+        decode parseString "\"asdf\\tasdf\"" `shouldBe` Right "asdf\tasdf"
 
   describe "array parsing" $ do
     describe "requiredElement" $ do
