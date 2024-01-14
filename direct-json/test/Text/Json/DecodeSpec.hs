@@ -4,6 +4,7 @@ module Text.Json.DecodeSpec
   ( spec
   ) where
 
+import qualified Data.ByteString.Lazy as BS
 import Data.Either
 import qualified Data.Text.Lazy as T
 import qualified Data.Text.Lazy.Encoding as T
@@ -105,6 +106,8 @@ spec = do
         decode parseString "\"\\uDD1E\\uD834\"" `shouldSatisfy` isLeft
       it "string with unescaped unicode symbol" $
         decode parseString (T.encodeUtf8 "\"\xABCD\"") `shouldBe` Right (T.encodeUtf8 "\xABCD")
+      it "string with unescaped invalid UTF-8" $
+        decode parseString ("\"" <> BS.drop 1 (T.encodeUtf8 "\xABCD") <> "\"") `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
     describe "requiredElement" $ do
