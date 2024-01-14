@@ -35,3 +35,4 @@ tests:
     - direct-json
     - hspec
     - scientific
+    - text

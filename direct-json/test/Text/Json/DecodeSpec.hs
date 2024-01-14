@@ -5,6 +5,7 @@ module Text.Json.DecodeSpec
   ) where
 
 import Data.Either
+import qualified Data.Text.Lazy.Encoding as T
 import Test.Hspec
 import Text.Json.Decode
 
@@ -90,6 +91,15 @@ spec = do
         decode parseString "\"asdf\\rasdf\"" `shouldBe` Right "asdf\rasdf"
       it "string with \\t" $
         decode parseString "\"asdf\\tasdf\"" `shouldBe` Right "asdf\tasdf"
+
+      it "string with unicode code - lowercase" $ do
+        decode parseString "\"\\uabcd\"" `shouldBe` Right (T.encodeUtf8 "\xABCD")
+      it "string with unicode code - uppercase" $ do
+        decode parseString "\"\\uABCD\"" `shouldBe` Right (T.encodeUtf8 "\xABCD")
+      it "string with unicode code - digits" $ do
+        decode parseString "\"\\u1234\"" `shouldBe` Right (T.encodeUtf8 "\x1234")
+      it "string with unescaped unicode symbol" $
+        decode parseString (T.encodeUtf8 "\"\xABCD\"") `shouldBe` Right (T.encodeUtf8 "\xABCD")
 
   describe "array parsing" $ do
     describe "requiredElement" $ do
