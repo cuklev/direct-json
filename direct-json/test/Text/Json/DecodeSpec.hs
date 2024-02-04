@@ -95,17 +95,17 @@ spec = do
         decode parseString "\"asdf\\tasdf\"" `shouldBe` Right "asdf\tasdf"
 
       it "string with unicode code - lowercase" $ do
-        decode parseString "\"\\uabcd\"" `shouldBe` Right (T.encodeUtf8 "\xABCD")
+        decode parseString "\"\\uabcd\"" `shouldBe` Right "\xABCD"
       it "string with unicode code - uppercase" $ do
-        decode parseString "\"\\uABCD\"" `shouldBe` Right (T.encodeUtf8 "\xABCD")
+        decode parseString "\"\\uABCD\"" `shouldBe` Right "\xABCD"
       it "string with unicode code - digits" $ do
-        decode parseString "\"\\u1234\"" `shouldBe` Right (T.encodeUtf8 "\x1234")
+        decode parseString "\"\\u1234\"" `shouldBe` Right "\x1234"
       it "string with unicode code - UTF-16 pair" $ do
-        decode parseString "\"\\uD834\\uDD1E\"" `shouldBe` Right (T.encodeUtf8 $ T.pack [toEnum 119070])
+        decode parseString "\"\\uD834\\uDD1E\"" `shouldBe` Right (T.pack [toEnum 119070])
       it "string with invalid UTF-16 pair" $
         decode parseString "\"\\uDD1E\\uD834\"" `shouldSatisfy` isLeft
       it "string with unescaped unicode symbol" $
-        decode parseString (T.encodeUtf8 "\"\xABCD\"") `shouldBe` Right (T.encodeUtf8 "\xABCD")
+        decode parseString (T.encodeUtf8 "\"\xABCD\"") `shouldBe` Right "\xABCD"
       it "string with unescaped invalid UTF-8" $
         decode parseString ("\"" <> BS.drop 1 (T.encodeUtf8 "\xABCD") <> "\"") `shouldSatisfy` isLeft
 

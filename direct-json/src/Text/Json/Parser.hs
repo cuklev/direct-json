@@ -20,11 +20,12 @@ module Text.Json.Parser
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Bifunctor (first, second)
 import Data.STRef
+import qualified Data.Text.Lazy as TL
 import Control.Monad.ST
 
 data Location
   = LocationArrayIndex !Int
-  | LocationObjectKey !BSL.ByteString
+  | LocationObjectKey !TL.Text
 
 newtype Parser s a = Parser (STRef s BSL.ByteString -> ST s (Either (String, [Location]) a))
 
@@ -71,7 +72,7 @@ atLocation sub (Parser parser) = Parser $ fmap (first (second (sub :))) . parser
 atArrayIndex :: Int -> Parser s a -> Parser s a
 atArrayIndex = atLocation . LocationArrayIndex
 
-atObjectKey :: BSL.ByteString -> Parser s a -> Parser s a
+atObjectKey :: TL.Text -> Parser s a -> Parser s a
 atObjectKey = atLocation . LocationObjectKey
 
 showError :: (String, [Location]) -> String

@@ -40,6 +40,8 @@ import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (isDigit, ord, chr)
 import Data.Scientific (Scientific, scientific)
 import Data.STRef
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 import Text.Json.Parser
 
 newtype ValueParser s a = ValueParser (Char -> Maybe (Parser s a))
@@ -104,7 +106,7 @@ parseNumber = ValueParser $ \case
     addDigit :: Integral a => a -> Char -> a
     addDigit n d = n * 10 + fromIntegral (ord d - ord '0')
 
-parseString :: ValueParser s BSL.ByteString
+parseString :: ValueParser s TL.Text
 parseString = ValueParser $ \case
   '"' -> Just stringParser'
   _   -> Nothing
@@ -168,12 +170,13 @@ valueParser' c (ValueParser vp) = case vp c of
   Nothing -> fail $ "Unexpected " ++ show c
   Just p  -> p <* skipWhile jsonWhitespace
 
-stringParser' :: Parser s BSL.ByteString
-stringParser' = fmap BSL.concat parser
+stringParser' :: Parser s TL.Text
+stringParser' = fmap TL.concat parser
   where
-    parser :: Parser s [BSL.ByteString]
+    parser :: Parser s [TL.Text]
     parser = do
-      nonEscaped <- takeWhileC $ not . mustEscape
+      nonEscapedBS <- takeWhileC $ not . mustEscape
+      nonEscaped <- either (fail . show) pure $ TL.decodeUtf8' nonEscapedBS
       fmap (nonEscaped :) $ anyChar >>= \case
         '"'  -> pure []
         '\\' -> anyChar >>= \case
@@ -206,7 +209,7 @@ stringParser' = fmap BSL.concat parser
                    let (c12, c3) = cp  `divMod` 64
                        (c1, c2)  = c12 `divMod` 64
                    pure $ map chr [c1 + 224, c2 + 128, c3 + 128]
-            (BSL.pack encoded :) <$> parser
+            (TL.decodeUtf8 (BSL.pack encoded) :) <$> parser
           c    -> fail $ "Unexpected " ++ show c
         c    -> fail $ "Unexpected " ++ show c
 
@@ -268,7 +271,7 @@ arrayOf :: ValueParser s a -> ArrayParser s [a] [a]
 arrayOf single = go []
   where go xs = optionalElement (reverse xs) single >>= \x -> go (x:xs)
 
-type FieldParser s = BSL.ByteString -> Parser s ()
+type FieldParser s = TL.Text -> Parser s ()
 newtype ObjectParser s a = ObjectParser (Parser s (FieldParser s -> FieldParser s, Parser s a))
 
 instance Functor (ObjectParser s) where
@@ -282,7 +285,7 @@ instance Applicative (ObjectParser s) where
       (f2, px) <- mx
       pure (f1 . f2, pf <*> px)
 
-someField :: (Maybe a -> Parser s b) -> BSL.ByteString -> ValueParser s a -> ObjectParser s b
+someField :: (Maybe a -> Parser s b) -> TL.Text -> ValueParser s a -> ObjectParser s b
 someField modify key field = ObjectParser $ do
   ref <- liftST $ newSTRef Nothing
   let storeValue fallback k
@@ -295,11 +298,11 @@ someField modify key field = ObjectParser $ do
 
   pure (storeValue, getValue)
 
-requiredField :: BSL.ByteString -> ValueParser s a -> ObjectParser s a
+requiredField :: TL.Text -> ValueParser s a -> ObjectParser s a
 requiredField key = someField (maybe missing pure) key
   where missing = fail $ "Missing key: " ++ show key
 
-optionalField :: BSL.ByteString -> ValueParser s a -> ObjectParser s (Maybe a)
+optionalField :: TL.Text -> ValueParser s a -> ObjectParser s (Maybe a)
 optionalField = someField pure
 
 ignoreAnyField :: ObjectParser s ()
@@ -308,7 +311,7 @@ ignoreAnyField = ObjectParser $ do
       getValue = pure ()
   pure (storeValue, getValue)
 
-captureAllFields :: ValueParser s a -> ObjectParser s [(BSL.ByteString, a)]
+captureAllFields :: ValueParser s a -> ObjectParser s [(TL.Text, a)]
 captureAllFields single = ObjectParser $ do
   ref <- liftST $ newSTRef []
   let storeValue _ key = do
@@ -332,13 +335,13 @@ requiredElementC = requiredElement jsonDecode
 optionalElementC :: JsonDecode a => r -> ArrayParser s r a
 optionalElementC end = optionalElement end jsonDecode
 
-requiredFieldC :: JsonDecode a => BSL.ByteString -> ObjectParser s a
+requiredFieldC :: JsonDecode a => TL.Text -> ObjectParser s a
 requiredFieldC key = requiredField key jsonDecode
 
-optionalFieldC :: JsonDecode a => BSL.ByteString -> ObjectParser s (Maybe a)
+optionalFieldC :: JsonDecode a => TL.Text -> ObjectParser s (Maybe a)
 optionalFieldC key = optionalField key jsonDecode
 
-captureAllFieldsC :: JsonDecode a => ObjectParser s [(BSL.ByteString, a)]
+captureAllFieldsC :: JsonDecode a => ObjectParser s [(TL.Text, a)]
 captureAllFieldsC = captureAllFields jsonDecode
 
 decodeC :: JsonDecode a => BSL.ByteString -> Either String a
