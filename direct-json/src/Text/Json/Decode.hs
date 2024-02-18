@@ -191,25 +191,16 @@ stringParser' = fmap TL.concat parser
           'u'  -> do
             cp <- unicodeSymbol
             encoded <-
-              if | cp < 128  -> pure [chr cp]
-                 | cp < 2048 -> do
-                   let (c1, c2) = cp `divMod` 64
-                   pure $ map chr [c1 + 192, c2 + 128]
-                 | 0xD800 <= cp && cp < 0xDC00 -> do
+              if | 0xD800 <= cp && cp < 0xDC00 -> do
                    string "\\u"
                    cp2 <- unicodeSymbol
                    when (cp2 < 0xDC00 || cp2 > 0xDFFF)
                      $ fail "Expecting low surrogate"
                    let realCp = 0x10000 + (cp `mod` 1024) * 1024 + cp2 `mod` 1024
-                       (c123, c4) = realCp `divMod` 64
-                       (c12, c3)  = c123 `divMod` 64
-                       (c1, c2)   = c12 `divMod` 64
-                   pure $ map chr [c1 + 240, c2 + 128, c3 + 128, c4 + 128]
-                 | otherwise -> do
-                   let (c12, c3) = cp  `divMod` 64
-                       (c1, c2)  = c12 `divMod` 64
-                   pure $ map chr [c1 + 224, c2 + 128, c3 + 128]
-            (TL.decodeUtf8 (BSL.pack encoded) :) <$> parser
+                   pure $ TL.pack [chr realCp]
+                 | 0xDC00 <= cp && cp <= 0xDFFF -> fail "Unexpected low surrogate"
+                 | otherwise -> pure $ TL.pack [chr cp]
+            (encoded :) <$> parser
           c    -> fail $ "Unexpected " ++ show c
         c    -> fail $ "Unexpected " ++ show c
 
