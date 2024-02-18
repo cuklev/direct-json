@@ -108,6 +108,8 @@ spec = do
         decode parseString (T.encodeUtf8 "\"\xABCD\"") `shouldBe` Right "\xABCD"
       it "string with unescaped invalid UTF-8" $
         decode parseString ("\"" <> BS.drop 1 (T.encodeUtf8 "\xABCD") <> "\"") `shouldSatisfy` isLeft
+      it "string with overlong encoded symbol" $
+        decode parseString ("\"" <> BS.pack [192, 128] <> "\"") `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
     describe "requiredElement" $ do
