@@ -10,10 +10,10 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Clock (getCurrentTime, diffUTCTime)
 import Control.Monad (unless)
 
-import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Vector as V
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
 import qualified Data.Text.IO as T
 import qualified Data.Text.Encoding as T
 
@@ -66,7 +66,7 @@ runDirectIgnore (inputStr, _) = either fail pure $ decode parseIgnore inputStr
 runDirect :: (BSL.ByteString, [[BigObject]]) -> IO ()
 runDirect (inputStr, inputObj) = do
   let boolParser = (False <$ parseFalse) <> (True <$ parseTrue)
-      textParser = fmap BSL.toStrict parseString
+      textParser = fmap TL.toStrict parseString
       smallObject = parseObject $ do
         smallName <- requiredField "name" textParser
         smallAge  <- floor <$> requiredField "age" parseNumber
@@ -101,7 +101,7 @@ testData size = (str, obj)
         smallObject = SmallObject "pesho" 42 True
 
 data SmallObject = SmallObject
-  { smallName    :: {-# UNPACK #-} !BS.ByteString
+  { smallName    :: {-# UNPACK #-} !T.Text
   , smallAge     :: {-# UNPACK #-} !Int
   , smallDeleted ::                !Bool
   }
@@ -115,7 +115,7 @@ instance FromJSON SmallObject where
       <*> o .: "deleted"
 
 data BigObject = BigObject
-  { bigLabel :: {-# UNPACK #-} !BS.ByteString
+  { bigLabel :: {-# UNPACK #-} !T.Text
   , bigData  :: {-# UNPACK #-} !(V.Vector SmallObject)
   }
   deriving Eq
@@ -125,6 +125,3 @@ instance FromJSON BigObject where
     BigObject
       <$> o .: "label"
       <*> o .: "data"
-
-instance FromJSON BS.ByteString where
-  parseJSON = fmap T.encodeUtf8 . parseJSON

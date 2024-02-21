@@ -18,6 +18,8 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import Data.Char (chr, ord)
 import Data.Scientific (Scientific, coefficient, base10Exponent)
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 
 newtype ValueEncoder = ValueEncoder { encoderChunks :: [BS.ByteString] }
 
@@ -36,8 +38,8 @@ encodeNumber s
   | otherwise      = ValueEncoder [BS.pack $ show $ coefficient s * 10 ^ e]
   where e = base10Exponent s
 
-encodeString :: BSL.ByteString -> ValueEncoder
-encodeString str = ValueEncoder $ "\"" : strEncode str ++ ["\""]
+encodeString :: TL.Text -> ValueEncoder
+encodeString str = ValueEncoder $ "\"" : strEncode (TL.encodeUtf8 str) ++ ["\""]
   where
     strEncode :: BSL.ByteString -> [BS.ByteString]
     strEncode str1 =
@@ -69,7 +71,7 @@ encodeArray (x:xs) = ValueEncoder
  ++ concatMap ((",":) . encoderChunks) xs
  ++ ["]"]
 
-encodeObject :: [(BSL.ByteString, ValueEncoder)] -> ValueEncoder
+encodeObject :: [(TL.Text, ValueEncoder)] -> ValueEncoder
 encodeObject [] = ValueEncoder ["{}"]
 encodeObject (x:xs) = ValueEncoder
   $ "{" : encodePair x

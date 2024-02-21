@@ -22,6 +22,7 @@ library:
   - bytestring
   - scientific
   - binary
+  - text
 
 tests:
   direct-json-test:
@@ -35,3 +36,5 @@ tests:
     - direct-json
     - hspec
     - scientific
+    - text
+    - bytestring

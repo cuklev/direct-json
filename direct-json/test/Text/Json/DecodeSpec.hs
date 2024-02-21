@@ -4,7 +4,10 @@ module Text.Json.DecodeSpec
   ( spec
   ) where
 
+import qualified Data.ByteString.Lazy as BS
 import Data.Either
+import qualified Data.Text.Lazy as T
+import qualified Data.Text.Lazy.Encoding as T
 import Test.Hspec
 import Text.Json.Decode
 
@@ -68,12 +71,45 @@ spec = do
       decode parseString "\"\"" `shouldBe` Right ""
     it "some simple string" $
       decode parseString "\"asdf\"" `shouldBe` Right "asdf"
-    it "string with escaping" $
-      decode parseString "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
     it "missing openning quote" $
       decode parseString "asdf\"" `shouldSatisfy` isLeft
     it "missing closing quote" $
       decode parseString "\"asdf" `shouldSatisfy` isLeft
+
+    describe "escaped symbols" $ do
+      it "string with \\\"" $
+        decode parseString "\"asdf\\\"asdf\"" `shouldBe` Right "asdf\"asdf"
+      it "string with \\\\" $
+        decode parseString "\"asdf\\\\asdf\"" `shouldBe` Right "asdf\\asdf"
+      it "string with \\/" $
+        decode parseString "\"asdf\\/asdf\"" `shouldBe` Right "asdf/asdf"
+      it "string with \\b" $
+        decode parseString "\"asdf\\basdf\"" `shouldBe` Right "asdf\basdf"
+      it "string with \\f" $
+        decode parseString "\"asdf\\fasdf\"" `shouldBe` Right "asdf\fasdf"
+      it "string with \\n" $
+        decode parseString "\"asdf\\nasdf\"" `shouldBe` Right "asdf\nasdf"
+      it "string with \\r" $
+        decode parseString "\"asdf\\rasdf\"" `shouldBe` Right "asdf\rasdf"
+      it "string with \\t" $
+        decode parseString "\"asdf\\tasdf\"" `shouldBe` Right "asdf\tasdf"
+
+      it "string with unicode code - lowercase" $ do
+        decode parseString "\"\\uabcd\"" `shouldBe` Right "\xABCD"
+      it "string with unicode code - uppercase" $ do
+        decode parseString "\"\\uABCD\"" `shouldBe` Right "\xABCD"
+      it "string with unicode code - digits" $ do
+        decode parseString "\"\\u1234\"" `shouldBe` Right "\x1234"
+      it "string with unicode code - UTF-16 pair" $ do
+        decode parseString "\"\\uD834\\uDD1E\"" `shouldBe` Right (T.pack [toEnum 119070])
+      it "string with invalid UTF-16 pair" $
+        decode parseString "\"\\uDD1E\\uD834\"" `shouldSatisfy` isLeft
+      it "string with unescaped unicode symbol" $
+        decode parseString (T.encodeUtf8 "\"\xABCD\"") `shouldBe` Right "\xABCD"
+      it "string with unescaped invalid UTF-8" $
+        decode parseString ("\"" <> BS.drop 1 (T.encodeUtf8 "\xABCD") <> "\"") `shouldSatisfy` isLeft
+      it "string with overlong encoded symbol" $
+        decode parseString ("\"" <> BS.pack [192, 128] <> "\"") `shouldSatisfy` isLeft
 
   describe "array parsing" $ do
     describe "requiredElement" $ do
